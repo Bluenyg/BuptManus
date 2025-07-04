@@ -14,9 +14,70 @@ from src.prompts.template import apply_prompt_template
 from src.tools.search import tavily_tool
 from .types import State, Router
 
+import os
 logger = logging.getLogger(__name__)
 
 RESPONSE_FORMAT = "Response from {}:\n\n<response>\n{}\n</response>\n\n*Please execute the next step.*"
+
+#经验库的导入
+EXPERIENCE_LOG_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'experience_log.json')
+
+
+
+def load_experience_log() -> list:
+    """载入经验库"""
+    if not os.path.exists(EXPERIENCE_LOG_PATH):
+        return []
+    with open(EXPERIENCE_LOG_PATH, 'r', encoding='utf-8') as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return []
+
+def save_experience_log(data: dict):
+    """存储到经验库"""
+    log = load_experience_log()
+    log.append(data)
+    with open(EXPERIENCE_LOG_PATH, 'w', encoding='utf-8') as f:
+        json.dump(log, f, indent=2, ensure_ascii=False)
+
+def human_in_the_loop_node(state: State) -> Command[Literal["supervisor", "planner", "__end__"]]:
+    """Human-in-the-loop node to get user feedback."""
+    logger.info("Human-in-the-loop: Awaiting user feedback.")
+    full_plan = state.get("full_plan")
+
+    # 在真實應用中，這裡會透過 API 或 UI 與使用者互動
+    # 為了演示，我們使用 console input 來模擬
+    print("\n" + "=" * 50)
+    print("PLANNER'S PROPOSED PLAN:")
+    print(full_plan)
+    print("=" * 50)
+
+    feedback = input("Do you approve this plan? (yes/no, or provide your feedback): ")
+
+    # 儲存經驗
+    experience_data = {
+        "original_plan": json.loads(full_plan),
+        "user_feedback": feedback
+    }
+    save_experience_log(experience_data)
+
+    if feedback.lower() == 'yes':
+        logger.info("User approved the plan. Proceeding to supervisor.")
+        goto = "supervisor"
+        user_feedback_message = "User approved the plan."
+    else:
+        logger.info(f"User provided feedback: {feedback}. Returning to planner.")
+        goto = "planner"
+        user_feedback_message = f"User has new suggestions, please replan based on the following: {feedback}"
+
+    return Command(
+        update={
+            "messages": state["messages"] + [HumanMessage(content=user_feedback_message, name="user_feedback")],
+            "user_feedback": feedback,
+        },
+        goto=goto,
+    )
 
 
 def research_node(state: State) -> Command[Literal["supervisor"]]:
@@ -148,19 +209,58 @@ def planner_node(state: State) -> Command[Literal["supervisor", "__end__"]]:
 
 
 def coordinator_node(state: State) -> Command[Literal["planner", "__end__"]]:
-    """Coordinator node that communicate with customers."""
+    """Coordinator node that communicates with customers and handles multimodal input."""
     logger.info("Coordinator talking.")
-    messages = apply_prompt_template("coordinator", state)
-    response = get_llm_by_type(AGENT_LLM_MAP["coordinator"]).invoke(messages)
-    logger.debug(f"Current state messages: {state['messages']}")
-    logger.debug(f"reporter response: {response}")
+
+    # 從 state 中解析最原始的輸入
+    # 這部分需要根據你的 app.py 如何傳入資料來調整
+    initial_input_str = state["messages"][0].content
+    try:
+        initial_input_data = json.loads(initial_input_str)
+        user_prompt = initial_input_data.get("messages", [{}])[0].get("content", "")
+        image_base64 = initial_input_data.get("image_base64")
+    except (json.JSONDecodeError, IndexError):
+        # 如果解析失敗，則視為純文字輸入
+        user_prompt = initial_input_str
+        image_base64 = None
+
+    # 建立多模態訊息內容
+    multimodal_content = [{"type": "text", "text": user_prompt}]
+    if image_base64:
+        multimodal_content.append(
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{image_base64}"
+                }
+            }
+        )
+        logger.info("Image data found and included in the message for the coordinator.")
+
+    # 建立新的 messages 列表
+    # 我們用處理過的多模態訊息替換掉原始的 state message
+    processed_messages = [HumanMessage(content=multimodal_content)]
+
+    # 將處理後的訊息傳遞給 prompt 模板
+    # 注意：這裡假設你的 coordinator prompt 能夠直接處理這種結構的訊息
+    templated_messages = apply_prompt_template("coordinator", {"messages": processed_messages})
+
+    llm = get_llm_by_type(AGENT_LLM_MAP["coordinator"])
+    response = llm.invoke(templated_messages)
+
+    logger.debug(f"Coordinator response: {response}")
 
     goto = "__end__"
     if "handoff_to_planner" in response.content:
         goto = "planner"
 
+    # 將原始的使用者文字提示和圖片資訊儲存到 state 中，供後續節點使用
     return Command(
         goto=goto,
+        update={
+            "messages": [HumanMessage(content=user_prompt, name="coordinator_handoff")],
+            "image_base64": image_base64,
+        }
     )
 
 

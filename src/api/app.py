@@ -4,14 +4,15 @@ FastAPI application for LangManus.
 
 import json
 import logging
+import asyncio
+import base64 # 新增：用於 Base64 編碼
 from typing import Dict, List, Any, Optional, Union
 
-from fastapi import FastAPI, HTTPException, Request
+# 導入 FastAPI 相關模組，並新增 File, Form, UploadFile
+from fastapi import FastAPI, HTTPException, Request, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
-import asyncio
-from typing import AsyncGenerator, Dict, List, Any
 
 from src.graph import build_graph
 from src.config import TEAM_MEMBERS
@@ -69,51 +70,80 @@ class ChatRequest(BaseModel):
     )
 
 
+# 合并后的统一聊天接口
 @app.post("/api/chat/stream")
-async def chat_endpoint(request: ChatRequest, req: Request):
+async def chat_stream_endpoint(
+        req: Request,
+        # 所有字段都从 Form 中获取
+        messages: str = Form(...),
+        debug: bool = Form(False),
+        deep_thinking_mode: bool = Form(False),
+        search_before_planning: bool = Form(False),
+        # 图片文件是可选的
+        image: Optional[UploadFile] = File(None),
+):
     """
-    Chat endpoint for LangGraph invoke.
-
-    Args:
-        request: The chat request
-        req: The FastAPI request object for connection state checking
-
-    Returns:
-        The streamed response
+    统一的聊天接口，支持纯文本和带图片的多模态输入。
+    此接口接收 multipart/form-data 格式的请求。
     """
+    logger.info("Received request for /api/chat/stream")
     try:
-        # Convert Pydantic models to dictionaries and normalize content format
-        messages = []
-        for msg in request.messages:
-            message_dict = {"role": msg.role}
+        # 1. 解析从表单传来的 messages JSON 字符串
+        try:
+            messages_data = json.loads(messages)
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse messages JSON: {messages}")
+            raise HTTPException(status_code=400, detail="Invalid JSON format for messages")
 
-            # Handle both string content and list of content items
-            if isinstance(msg.content, str):
-                message_dict["content"] = msg.content
+        # 2. 如果有图片文件，处理并更新消息内容
+        if image:
+            logger.info(f"Processing uploaded image: {image.filename}")
+            # 验证文件类型
+            if not image.content_type or not image.content_type.startswith("image/"):
+                raise HTTPException(status_code=400, detail="Uploaded file is not a valid image")
+
+            # 读取图片字节并编码为 Base64 Data URL
+            image_bytes = await image.read()
+            base64_image = base64.b64encode(image_bytes).decode('utf-8')
+            mime_type = image.content_type
+            image_url = f"data:{mime_type};base64,{base64_image}"
+
+            # 找到最后一条用户消息来附加图片
+            last_user_message_index = -1
+            for i in range(len(messages_data) - 1, -1, -1):
+                if messages_data[i].get("role") == "user":
+                    last_user_message_index = i
+                    break
+
+            if last_user_message_index != -1:
+                # 获取原始文本内容
+                original_content = messages_data[last_user_message_index].get("content", "")
+
+                # 构建新的多模态 content
+                new_content = [
+                    {"type": "text", "text": original_content},
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                ]
+                messages_data[last_user_message_index]["content"] = new_content
             else:
-                # For content as a list, convert to the format expected by the workflow
-                content_items = []
-                for item in msg.content:
-                    if item.type == "text" and item.text:
-                        content_items.append({"type": "text", "text": item.text})
-                    elif item.type == "image" and item.image_url:
-                        content_items.append(
-                            {"type": "image", "image_url": item.image_url}
-                        )
+                # 如果没有用户消息，就创建一条新的
+                messages_data.append({"role": "user", "content": [
+                    {"type": "text", "text": ""},
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                ]})
 
-                message_dict["content"] = content_items
-
-            messages.append(message_dict)
+        # 3. 准备输入并执行工作流 (这段逻辑对于两种情况是通用的)
+        final_input = {"messages": messages_data}
 
         async def event_generator():
             try:
+                # 注意：这里我们直接使用 messages_data，它已经是正确的格式
                 async for event in run_agent_workflow(
-                    messages,
-                    request.debug,
-                    request.deep_thinking_mode,
-                    request.search_before_planning,
+                        messages=final_input["messages"],  # 直接传递消息列表
+                        debug=debug,
+                        deep_thinking_mode=deep_thinking_mode,
+                        search_before_planning=search_before_planning,
                 ):
-                    # Check if client is still connected
                     if await req.is_disconnected():
                         logger.info("Client disconnected, stopping workflow")
                         break
@@ -124,6 +154,13 @@ async def chat_endpoint(request: ChatRequest, req: Request):
             except asyncio.CancelledError:
                 logger.info("Stream processing cancelled")
                 raise
+            except Exception as e:
+                logger.error(f"Error in workflow execution: {e}", exc_info=True)
+                # 可以在这里发送一个错误事件给前端
+                yield {
+                    "event": "error",
+                    "data": json.dumps({"error": str(e)})
+                }
 
         return EventSourceResponse(
             event_generator(),
@@ -131,5 +168,5 @@ async def chat_endpoint(request: ChatRequest, req: Request):
             sep="\n",
         )
     except Exception as e:
-        logger.error(f"Error in chat endpoint: {e}")
+        logger.error(f"Error in chat endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
