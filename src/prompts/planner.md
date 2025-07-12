@@ -54,4 +54,6 @@ interface Plan {
 - Always use `coder` for mathematical computations.
 - Always use `coder` to get stock information via `yfinance`.
 - Always use `reporter` to present your final report. Reporter can only be used once as the last step.
+- Always use `flight` for gathering information about flight.
+- Always use `weather` for gathering information about weather.
 - Always Use the same language as the user.

@@ -14,70 +14,9 @@ from src.prompts.template import apply_prompt_template
 from src.tools.search import tavily_tool
 from .types import State, Router
 
-import os
 logger = logging.getLogger(__name__)
 
 RESPONSE_FORMAT = "Response from {}:\n\n<response>\n{}\n</response>\n\n*Please execute the next step.*"
-
-#经验库的导入
-EXPERIENCE_LOG_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'experience_log.json')
-
-
-
-def load_experience_log() -> list:
-    """载入经验库"""
-    if not os.path.exists(EXPERIENCE_LOG_PATH):
-        return []
-    with open(EXPERIENCE_LOG_PATH, 'r', encoding='utf-8') as f:
-        try:
-            return json.load(f)
-        except json.JSONDecodeError:
-            return []
-
-def save_experience_log(data: dict):
-    """存储到经验库"""
-    log = load_experience_log()
-    log.append(data)
-    with open(EXPERIENCE_LOG_PATH, 'w', encoding='utf-8') as f:
-        json.dump(log, f, indent=2, ensure_ascii=False)
-
-def human_in_the_loop_node(state: State) -> Command[Literal["supervisor", "planner", "__end__"]]:
-    """Human-in-the-loop node to get user feedback."""
-    logger.info("Human-in-the-loop: Awaiting user feedback.")
-    full_plan = state.get("full_plan")
-
-    # 在真實應用中，這裡會透過 API 或 UI 與使用者互動
-    # 為了演示，我們使用 console input 來模擬
-    print("\n" + "=" * 50)
-    print("PLANNER'S PROPOSED PLAN:")
-    print(full_plan)
-    print("=" * 50)
-
-    feedback = input("Do you approve this plan? (yes/no, or provide your feedback): ")
-
-    # 儲存經驗
-    experience_data = {
-        "original_plan": json.loads(full_plan),
-        "user_feedback": feedback
-    }
-    save_experience_log(experience_data)
-
-    if feedback.lower() == 'yes':
-        logger.info("User approved the plan. Proceeding to supervisor.")
-        goto = "supervisor"
-        user_feedback_message = "User approved the plan."
-    else:
-        logger.info(f"User provided feedback: {feedback}. Returning to planner.")
-        goto = "planner"
-        user_feedback_message = f"User has new suggestions, please replan based on the following: {feedback}"
-
-    return Command(
-        update={
-            "messages": state["messages"] + [HumanMessage(content=user_feedback_message, name="user_feedback")],
-            "user_feedback": feedback,
-        },
-        goto=goto,
-    )
 
 
 def research_node(state: State) -> Command[Literal["supervisor"]]:
@@ -146,6 +85,28 @@ def browser_node(state: State) -> Command[Literal["supervisor"]]:
 def supervisor_node(state: State) -> Command[Literal[*TEAM_MEMBERS, "__end__"]]:
     """Supervisor node that decides which agent should act next."""
     logger.info("Supervisor evaluating next action")
+
+    # --- 新增：重试逻辑 ---
+    MAX_RETRIES = 2  # 设置每个任务的最大重试次数
+    # 初始化或获取重试计数器
+    retry_counts = state.get("task_retry_counts", {})
+
+    # 获取上一个执行的节点名称
+    last_node = state.get("next")
+
+    # 检查上一个节点是否是工具节点并且失败了 (通过检查最后一条消息的内容)
+    # 这是一个简化的判断，您可以根据需要做得更精确
+    if last_node and last_node in TEAM_MEMBERS and "错误" in state["messages"][-1].content:
+        # 增加对应任务的重试次数
+        retry_counts[last_node] = retry_counts.get(last_node, 0) + 1
+        logger.warning(f"任务 '{last_node}' 失败，重试次数: {retry_counts[last_node]}")
+
+        # 如果超过最大重试次数，则强制结束或转到报告节点
+        if retry_counts[last_node] > MAX_RETRIES:
+            logger.error(f"任务 '{last_node}' 已超过最大重试次数，工作流将结束。")
+            return Command(goto="__end__", update={"task_retry_counts": retry_counts})
+
+    # --- 原有逻辑开始 ---
     messages = apply_prompt_template("supervisor", state)
     response = (
         get_llm_by_type(AGENT_LLM_MAP["supervisor"])
@@ -161,8 +122,10 @@ def supervisor_node(state: State) -> Command[Literal[*TEAM_MEMBERS, "__end__"]]:
         logger.info("Workflow completed")
     else:
         logger.info(f"Supervisor delegating to: {goto}")
+        # 如果分配了新任务，可以清零它的计数器（可选，但推荐）
+        retry_counts[goto] = 0
 
-    return Command(goto=goto, update={"next": goto})
+    return Command(goto=goto, update={"next": goto, "task_retry_counts": retry_counts})
 
 
 def planner_node(state: State) -> Command[Literal["supervisor", "__end__"]]:
@@ -175,6 +138,7 @@ def planner_node(state: State) -> Command[Literal["supervisor", "__end__"]]:
         llm = get_llm_by_type("reasoning")
     if state.get("search_before_planning"):
         searched_content = tavily_tool.invoke({"query": state["messages"][-1].content})
+        print(f"searched_content: {searched_content}")
         messages = deepcopy(messages)
         messages[
             -1
@@ -209,58 +173,19 @@ def planner_node(state: State) -> Command[Literal["supervisor", "__end__"]]:
 
 
 def coordinator_node(state: State) -> Command[Literal["planner", "__end__"]]:
-    """Coordinator node that communicates with customers and handles multimodal input."""
+    """Coordinator node that communicate with customers."""
     logger.info("Coordinator talking.")
-
-    # 從 state 中解析最原始的輸入
-    # 這部分需要根據你的 app.py 如何傳入資料來調整
-    initial_input_str = state["messages"][0].content
-    try:
-        initial_input_data = json.loads(initial_input_str)
-        user_prompt = initial_input_data.get("messages", [{}])[0].get("content", "")
-        image_base64 = initial_input_data.get("image_base64")
-    except (json.JSONDecodeError, IndexError):
-        # 如果解析失敗，則視為純文字輸入
-        user_prompt = initial_input_str
-        image_base64 = None
-
-    # 建立多模態訊息內容
-    multimodal_content = [{"type": "text", "text": user_prompt}]
-    if image_base64:
-        multimodal_content.append(
-            {
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/png;base64,{image_base64}"
-                }
-            }
-        )
-        logger.info("Image data found and included in the message for the coordinator.")
-
-    # 建立新的 messages 列表
-    # 我們用處理過的多模態訊息替換掉原始的 state message
-    processed_messages = [HumanMessage(content=multimodal_content)]
-
-    # 將處理後的訊息傳遞給 prompt 模板
-    # 注意：這裡假設你的 coordinator prompt 能夠直接處理這種結構的訊息
-    templated_messages = apply_prompt_template("coordinator", {"messages": processed_messages})
-
-    llm = get_llm_by_type(AGENT_LLM_MAP["coordinator"])
-    response = llm.invoke(templated_messages)
-
-    logger.debug(f"Coordinator response: {response}")
+    messages = apply_prompt_template("coordinator", state)
+    response = get_llm_by_type(AGENT_LLM_MAP["coordinator"]).invoke(messages)
+    logger.debug(f"Current state messages: {state['messages']}")
+    logger.debug(f"reporter response: {response}")
 
     goto = "__end__"
     if "handoff_to_planner" in response.content:
         goto = "planner"
 
-    # 將原始的使用者文字提示和圖片資訊儲存到 state 中，供後續節點使用
     return Command(
         goto=goto,
-        update={
-            "messages": [HumanMessage(content=user_prompt, name="coordinator_handoff")],
-            "image_base64": image_base64,
-        }
     )
 
 
@@ -283,3 +208,94 @@ def reporter_node(state: State) -> Command[Literal["supervisor"]]:
         },
         goto="supervisor",
     )
+
+from dashscope import Application
+
+# --- 更新后的节点函数 ---
+
+def flight_node(state: State) -> Command[Literal["supervisor"]]:
+    # 记录日志，表示已进入这个节点
+    logger.info("--- 进入 'flight_node' 节点 ---")
+    query = state["messages"][0].content
+    # 记录收到的具体查询内容
+    logger.info(f"收到的查询: {query}")
+
+    response_content = ""  # 默认的空内容，用于在出错时返回
+    try:
+        # 调用Dashscope应用API
+        response = Application.call(
+            api_key="sk-c7184ff1b3314d96b14426451a954b3d",
+            app_id='9cdb1c6a1f9245c39ae9c4f88edd9acb',
+            prompt=query
+        )
+        # 记录完整的API响应对象，用于详细调试。级别设为DEBUG，平时不显示，需要时再打开。
+        logger.debug(f"来自 flight 应用的完整API响应: {response}")
+
+        # 安全地访问输出内容，先判断 response 和 response.output 是否有效
+        if response and response.output and response.output.text:
+            response_content = response.output.text
+            logger.info("成功从 flight API 响应中提取文本。")
+        else:
+            # 如果API响应无效或没有输出文本，则记录错误
+            logger.error("Flight API 响应无效或没有输出文本。")
+            logger.error(f"有问题的响应对象: {response}")
+            response_content = "错误：机票工具未能获取有效响应。"
+
+    except Exception as e:
+        # 捕获所有其他可能的异常，例如网络错误
+        logger.exception(f"在 flight_node 中发生意外错误: {e}")
+        response_content = "错误：调用机票工具时发生异常。"
+
+    # 返回Command对象，更新状态并指定下一个节点
+    return Command(
+        update={
+            "messages": [
+                HumanMessage(
+                    content=response_content,
+                    name="flight", # 消息来源的名称
+                )
+            ]
+        },
+        goto="supervisor", # 指定下一个要跳转的节点
+    )
+
+def weather_node(state: State) -> Command[Literal["supervisor"]]:
+    logger.info("--- 进入 'weather_node' 节点 ---")
+    query = state["messages"][0].content
+    logger.info(f"收到的查询: {query}")
+
+    response_content = "" # 默认的空内容
+    try:
+        response = Application.call(
+            api_key="sk-c7184ff1b3314d96b14426451a954b3d",
+            app_id='c9ee8ae5e6bb45ee8b930de3cfdc8ec9',
+            prompt=query
+        )
+        logger.debug(f"来自 weather 应用的完整API响应: {response}")
+
+        if response and response.output and response.output.text:
+            response_content = response.output.text
+            logger.info("成功从 weather API 响应中提取文本。")
+        else:
+            logger.error("Weather API 响应无效或没有输出文本。")
+            logger.error(f"有问题的响应对象: {response}")
+            response_content = "错误：天气工具未能获取有效响应。"
+
+    except Exception as e:
+        logger.exception(f"在 weather_node 中发生意外错误: {e}")
+        response_content = "错误：调用天气工具时发生异常。"
+
+    return Command(
+        update={
+            "messages": [
+                HumanMessage(
+                    content=response_content,
+                    name="weather",
+                )
+            ]
+        },
+        goto="supervisor",
+    )
+
+
+

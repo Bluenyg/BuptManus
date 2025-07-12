@@ -3,7 +3,7 @@ from typing_extensions import TypedDict
 from langgraph.graph import MessagesState
 
 from src.config import TEAM_MEMBERS
-
+from typing import Dict
 # Define routing options
 OPTIONS = TEAM_MEMBERS + ["FINISH", "human_in_the_loop"] # 新增 human_in_the_loop
 
@@ -27,3 +27,5 @@ class State(MessagesState):
     search_before_planning: bool
     user_feedback: Optional[str] = None # 新增一个栏位
     image_base64: Optional[str] = None  # 用来存储图片
+    # 用于追踪每个任务的重试次数
+    task_retry_counts: Dict[str, int]
