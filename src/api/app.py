@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
-    title="LangManus API",
-    description="API for LangManus LangGraph-based agent workflow",
+    title="BUPTManus API",
+    description="API for BUPTManus LangGraph-based agent workflow",
     version="0.1.0",
 )
 
@@ -138,8 +138,9 @@ async def chat_stream_endpoint(
         async def event_generator():
             try:
                 # 注意：这里我们直接使用 messages_data，它已经是正确的格式
+                # 核心修正：将关键字参数从 'messages' 改为 'user_input_messages'
                 async for event in run_agent_workflow(
-                        messages=final_input["messages"],  # 直接传递消息列表
+                        user_input_messages=final_input["messages"],
                         debug=debug,
                         deep_thinking_mode=deep_thinking_mode,
                         search_before_planning=search_before_planning,

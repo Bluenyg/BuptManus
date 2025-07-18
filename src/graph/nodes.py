@@ -6,7 +6,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 from langgraph.graph import END
 
-from src.agents import research_agent, coder_agent, browser_agent
+from src.agents import research_agent, coder_agent, browser_agent,kuaidi_agent
 from src.agents.llm import get_llm_by_type
 from src.config import TEAM_MEMBERS
 from src.config.agents import AGENT_LLM_MAP
@@ -64,16 +64,30 @@ def code_node(state: State) -> Command[Literal["supervisor"]]:
 def browser_node(state: State) -> Command[Literal["supervisor"]]:
     """Node for the browser agent that performs web browsing tasks."""
     logger.info("Browser agent starting task")
-    result = browser_agent.invoke(state)
-    logger.info("Browser agent completed task")
-    logger.debug(f"Browser agent response: {result['messages'][-1].content}")
+
+    # 处理多模态输入，移除图片信息
+    first_msg = state["messages"][0]
+    if isinstance(first_msg.content, list):
+        first_msg.content = [item for item in first_msg.content if item.get("type") == "text"]
+        logger.debug(f"去除图片信息后的内容：{first_msg.content}")
+
+    try:
+        result = browser_agent.invoke(state)
+        logger.info("Browser agent completed task")
+        logger.debug(f"Browser agent response: {result['messages'][-1].content}")
+
+        response_content = result["messages"][-1].content
+
+    except Exception as e:
+        logger.exception(f"browser_agent.invoke 执行失败: {e}")
+        # 在异常情况下提供默认的错误响应
+        response_content = f"Browser agent encountered an error: {str(e)}"
+
     return Command(
         update={
             "messages": [
                 HumanMessage(
-                    content=RESPONSE_FORMAT.format(
-                        "browser", result["messages"][-1].content
-                    ),
+                    content=RESPONSE_FORMAT.format("browser", response_content),
                     name="browser",
                 )
             ]
@@ -129,38 +143,74 @@ def supervisor_node(state: State) -> Command[Literal[*TEAM_MEMBERS, "__end__"]]:
 
 
 def planner_node(state: State) -> Command[Literal["supervisor", "__end__"]]:
-    """Planner node that generate the full plan."""
+    """
+    Planner node that generates the full plan.
+    It dynamically selects a vision-capable LLM if an image is present in the input.
+    """
     logger.info("Planner generating full plan")
+
+    # 1. Preparar los mensajes para el LLM
     messages = apply_prompt_template("planner", state)
-    # whether to enable deep thinking mode
-    llm = get_llm_by_type("basic")
-    if state.get("deep_thinking_mode"):
-        llm = get_llm_by_type("reasoning")
+
+    # 2. Determinar si la entrada es multimodal
+    # LangChain formatea las entradas multimodales como una lista de diccionarios en el contenido del mensaje.
+    last_message = state["messages"][-1]
+    is_multimodal_input = isinstance(last_message.content, list)
+
+    # 3. Seleccionar el LLM dinámicamente
+    llm = None
+    if is_multimodal_input:
+        logger.info("Multimodal input detected. Using vision LLM for planning.")
+        # Usamos el LLM de visión que ya tienes configurado en llm.py
+        llm = get_llm_by_type("vision")
+    else:
+        logger.info("Text-only input detected. Selecting LLM based on thinking mode.")
+        # Mantenemos la lógica original para entradas de solo texto
+        if state.get("deep_thinking_mode"):
+            llm = get_llm_by_type("reasoning")
+        else:
+            llm = get_llm_by_type("basic")
+
+    # 4. (Opcional) Añadir resultados de búsqueda si es necesario
     if state.get("search_before_planning"):
-        searched_content = tavily_tool.invoke({"query": state["messages"][-1].content})
-        print(f"searched_content: {searched_content}")
-        messages = deepcopy(messages)
-        messages[
-            -1
-        ].content += f"\n\n# Relative Search Results\n\n{json.dumps([{'titile': elem['title'], 'content': elem['content']} for elem in searched_content], ensure_ascii=False)}"
+        # Extraer el texto del prompt del usuario, incluso en casos multimodales
+        user_prompt_text = ""
+        if is_multimodal_input:
+            # En una lista de contenidos, el texto suele ser el primer elemento
+            text_part = next((item for item in last_message.content if item.get("type") == "text"), None)
+            if text_part:
+                user_prompt_text = text_part.get("text", "")
+        else:
+            user_prompt_text = last_message.content
+
+        if user_prompt_text:
+            searched_content = tavily_tool.invoke({"query": user_prompt_text})
+            messages = deepcopy(messages)
+            messages[
+                -1].content += f"\n\n# Relative Search Results\n\n{json.dumps([{'titile': elem['title'], 'content': elem['content']} for elem in searched_content], ensure_ascii=False)}"
+        else:
+            logger.warning("Search before planning was enabled, but no text was found in the user message.")
+
+    # 5. Invocar el LLM y procesar la respuesta
+    logger.debug(f"Current state messages: {state['messages']}")
     stream = llm.stream(messages)
     full_response = ""
     for chunk in stream:
         full_response += chunk.content
-    logger.debug(f"Current state messages: {state['messages']}")
     logger.debug(f"Planner response: {full_response}")
 
     if full_response.startswith("```json"):
         full_response = full_response.removeprefix("```json")
-
     if full_response.endswith("```"):
         full_response = full_response.removesuffix("```")
 
     goto = "supervisor"
     try:
+        # Es crucial que el modelo de visión también devuelva un JSON válido.
+        # Puede que necesites ajustar tu prompt para asegurarte de esto.
         json.loads(full_response)
     except json.JSONDecodeError:
-        logger.warning("Planner response is not a valid JSON")
+        logger.warning(f"Planner response is not a valid JSON. Response:\n{full_response}")
         goto = "__end__"
 
     return Command(
@@ -209,93 +259,35 @@ def reporter_node(state: State) -> Command[Literal["supervisor"]]:
         goto="supervisor",
     )
 
-from dashscope import Application
 
-# --- 更新后的节点函数 ---
 
-def flight_node(state: State) -> Command[Literal["supervisor"]]:
-    # 记录日志，表示已进入这个节点
-    logger.info("--- 进入 'flight_node' 节点 ---")
-    query = state["messages"][0].content
-    # 记录收到的具体查询内容
-    logger.info(f"收到的查询: {query}")
+def life_tools_node(state: State) -> Command[Literal["supervisor"]]:
+    """Node for the life tools agent that handles daily life tasks."""
+    logger.info("Life tools agent starting task")
 
-    response_content = ""  # 默认的空内容，用于在出错时返回
     try:
-        # 调用Dashscope应用API
-        response = Application.call(
-            api_key="sk-c7184ff1b3314d96b14426451a954b3d",
-            app_id='9cdb1c6a1f9245c39ae9c4f88edd9acb',
-            prompt=query
-        )
-        # 记录完整的API响应对象，用于详细调试。级别设为DEBUG，平时不显示，需要时再打开。
-        logger.debug(f"来自 flight 应用的完整API响应: {response}")
+        # 调用生活工具 agent
+        result = life_tools_agent.invoke(state)
+        logger.info("Life tools agent completed task")
 
-        # 安全地访问输出内容，先判断 response 和 response.output 是否有效
-        if response and response.output and response.output.text:
-            response_content = response.output.text
-            logger.info("成功从 flight API 响应中提取文本。")
-        else:
-            # 如果API响应无效或没有输出文本，则记录错误
-            logger.error("Flight API 响应无效或没有输出文本。")
-            logger.error(f"有问题的响应对象: {response}")
-            response_content = "错误：机票工具未能获取有效响应。"
+        logger.debug(f"Life tools agent execution result (full state): \n{result}")
+
+        # 提取最终答案
+        response_content = result["messages"][-1].content
 
     except Exception as e:
-        # 捕获所有其他可能的异常，例如网络错误
-        logger.exception(f"在 flight_node 中发生意外错误: {e}")
-        response_content = "错误：调用机票工具时发生异常。"
-
-    # 返回Command对象，更新状态并指定下一个节点
-    return Command(
-        update={
-            "messages": [
-                HumanMessage(
-                    content=response_content,
-                    name="flight", # 消息来源的名称
-                )
-            ]
-        },
-        goto="supervisor", # 指定下一个要跳转的节点
-    )
-
-def weather_node(state: State) -> Command[Literal["supervisor"]]:
-    logger.info("--- 进入 'weather_node' 节点 ---")
-    query = state["messages"][0].content
-    logger.info(f"收到的查询: {query}")
-
-    response_content = "" # 默认的空内容
-    try:
-        response = Application.call(
-            api_key="sk-c7184ff1b3314d96b14426451a954b3d",
-            app_id='c9ee8ae5e6bb45ee8b930de3cfdc8ec9',
-            prompt=query
-        )
-        logger.debug(f"来自 weather 应用的完整API响应: {response}")
-
-        if response and response.output and response.output.text:
-            response_content = response.output.text
-            logger.info("成功从 weather API 响应中提取文本。")
-        else:
-            logger.error("Weather API 响应无效或没有输出文本。")
-            logger.error(f"有问题的响应对象: {response}")
-            response_content = "错误：天气工具未能获取有效响应。"
-
-    except Exception as e:
-        logger.exception(f"在 weather_node 中发生意外错误: {e}")
-        response_content = "错误：调用天气工具时发生异常。"
+        logger.exception(f"life_tools_agent.invoke failed: {e}")
+        response_content = f"Life tools agent encountered an error: {str(e)}"
 
     return Command(
         update={
             "messages": [
                 HumanMessage(
-                    content=response_content,
-                    name="weather",
+                    content=RESPONSE_FORMAT.format("life_tools", response_content),
+                    name="life_tools",
                 )
             ]
         },
         goto="supervisor",
     )
-
-
 

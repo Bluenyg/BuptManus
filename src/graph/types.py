@@ -4,9 +4,8 @@ from langgraph.graph import MessagesState
 
 from src.config import TEAM_MEMBERS
 from typing import Dict
-# Define routing options
-OPTIONS = TEAM_MEMBERS + ["FINISH", "human_in_the_loop"] # 新增 human_in_the_loop
 
+OPTIONS = TEAM_MEMBERS + ["FINISH"]
 
 class Router(TypedDict):
     """Worker to route to next. If no workers needed, route to FINISH."""

@@ -9,8 +9,8 @@ from .nodes import (
     browser_node,
     reporter_node,
     planner_node,
-    flight_node,
-    weather_node
+    life_tools_node
+
 )
 
 
@@ -25,6 +25,5 @@ def build_graph():
     builder.add_node("coder", code_node)
     builder.add_node("browser", browser_node)
     builder.add_node("reporter", reporter_node)
-    builder.add_node("flight",flight_node)
-    builder.add_node("weather", weather_node)
+    builder.add_node("life_tools", life_tools_node)  # 更新节点名
     return builder.compile()

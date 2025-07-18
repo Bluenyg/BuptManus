@@ -58,7 +58,7 @@ cp .env.example .env
 # 编辑 .env 文件，填入你的 API 密钥
 
 # 运行项目
-uv run main.py
+uv run pic_main.py
 ```
 
 ## 架构

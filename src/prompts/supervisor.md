@@ -18,5 +18,8 @@ Always respond with a valid JSON object containing only the 'next' key and a sin
 - **`coder`**: Executes Python or Bash commands, performs mathematical calculations, and outputs a Markdown report. Must be used for all mathematical computations.
 - **`browser`**: Directly interacts with web pages, performing complex operations and interactions. You can also leverage `browser` to perform in-domain search, like Facebook, Instgram, Github, etc.
 - **`reporter`**: Wriite a professional report based on the result of each step.
-- **`flight`**: Gathers information about flights, including schedules, prices, and availability.
-- **`weather`**: Gathers information about weather conditions, forecasts, and related data.
+- **`life_tools`**: Handles daily life management tasks including:
+  - Package tracking and logistics queries
+  - Weather information and forecasts
+  - Flight searches, schedules, and pricing
+  - Other lifestyle and convenience services

@@ -7,7 +7,12 @@ from langgraph.prebuilt.chat_agent_executor import AgentState
 
 
 def get_prompt_template(prompt_name: str) -> str:
-    template = open(os.path.join(os.path.dirname(__file__), f"{prompt_name}.md")).read()
+    # --- The only change is in the line below ---
+    file_path = os.path.join(os.path.dirname(__file__), f"{prompt_name}.md")
+
+    # Explicitly specify encoding='utf-8' when opening the file.
+    template = open(file_path, encoding='utf-8').read()  # <-- 关键改动：指定UTF-8编码
+
     # Escape curly braces using backslash
     template = template.replace("{", "{{").replace("}", "}}")
     # Replace `<<VAR>>` with `{VAR}`

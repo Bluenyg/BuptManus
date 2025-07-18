@@ -13,11 +13,13 @@ from .env import (
     VL_API_KEY,
     # Other configurations
     CHROME_INSTANCE_PATH,
+    KUAIDI100_API_KEY,
+    CUSTOMER_ID
 )
 from .tools import TAVILY_MAX_RESULTS
 
 # Team configuration
-TEAM_MEMBERS = ["researcher", "coder", "browser", "reporter"]
+TEAM_MEMBERS = ["researcher", "coder", "browser", "reporter","life_tools"]
 
 __all__ = [
     # Reasoning LLM
@@ -36,4 +38,6 @@ __all__ = [
     "TEAM_MEMBERS",
     "TAVILY_MAX_RESULTS",
     "CHROME_INSTANCE_PATH",
+    "KUAIDI100_API_KEY",
+    "CUSTOMER_ID"
 ]

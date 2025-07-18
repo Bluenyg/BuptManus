@@ -21,3 +21,7 @@ VL_API_KEY = os.getenv("VL_API_KEY")
 
 # Chrome Instance configuration
 CHROME_INSTANCE_PATH = os.getenv("CHROME_INSTANCE_PATH")
+
+#快递的API_KEY
+KUAIDI100_API_KEY = os.getenv("KUAIDI100_API_KEY")
+CUSTOMER_ID = os.getenv("CUSTOMER_ID")
