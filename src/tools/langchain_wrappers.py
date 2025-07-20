@@ -1,8 +1,10 @@
 # src/tools/langchain_wrappers.py
-from typing import Dict, Any, List
+
+from typing import Dict, Any, List, Optional
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -13,21 +15,72 @@ class MCPToolWrapper(BaseTool):
     name: str = Field(...)
     description: str = Field(...)
     tool_name: str = Field(...)
+    input_schema: Optional[Dict[str, Any]] = Field(default=None)
+
+    def _extract_args(self, **kwargs: Any) -> Dict[str, Any]:
+        """提取并清理参数"""
+        # 检查是否有嵌套的 kwargs
+        if len(kwargs) == 1 and 'kwargs' in kwargs:
+            args = kwargs['kwargs']
+            logger.info(f"Extracted nested kwargs: {args}")
+        else:
+            args = kwargs
+            logger.info(f"Using direct kwargs: {args}")
+
+        return args
 
     def _run(self, **kwargs: Any) -> str:
         """运行工具"""
         from .mcp_tools import call_mcp_tool_sync
+
         try:
-            return call_mcp_tool_sync(self.tool_name, kwargs)
+            # 添加参数预处理
+            args = kwargs.copy()
+
+            # 检查是否有嵌套的 kwargs
+            if len(kwargs) == 1 and 'kwargs' in kwargs:
+                args = kwargs['kwargs']
+                logger.info(f"Extracted nested kwargs: {args}")
+
+            # 参数名称映射 - 处理参数名不匹配的问题
+            if self.tool_name == "track_logistics":
+                # 将 courier_number 映射为 tracking_number
+                if 'courier_number' in args and 'tracking_number' not in args:
+                    args['tracking_number'] = args.pop('courier_number')
+                    logger.info(f"Mapped courier_number to tracking_number: {args}")
+
+            logger.info(f"Calling MCP tool {self.tool_name} with args: {args}")
+            result = call_mcp_tool_sync(self.tool_name, args)
+            logger.info(f"MCP tool {self.tool_name} result: {result}")
+            return result
         except Exception as e:
             logger.error(f"Error calling MCP tool {self.tool_name}: {e}")
             return f"工具调用失败: {str(e)}"
 
+    # 同样修改 _arun 方法
     async def _arun(self, **kwargs: Any) -> str:
         """异步运行工具"""
-        from .mcp_tools import call_mcp_tool
+        from .mcp_tools import call_mcp_tool_async
+
         try:
-            return await call_mcp_tool(self.tool_name, kwargs)
+            # 添加参数预处理
+            args = kwargs.copy()
+
+            # 检查是否有嵌套的 kwargs
+            if len(kwargs) == 1 and 'kwargs' in kwargs:
+                args = kwargs['kwargs']
+                logger.info(f"Extracted nested kwargs: {args}")
+
+            # 参数名称映射
+            if self.tool_name == "track_logistics":
+                if 'courier_number' in args and 'tracking_number' not in args:
+                    args['tracking_number'] = args.pop('courier_number')
+                    logger.info(f"Mapped courier_number to tracking_number: {args}")
+
+            logger.info(f"Async calling MCP tool {self.tool_name} with args: {args}")
+            result = await call_mcp_tool_async(self.tool_name, args)
+            logger.info(f"MCP tool {self.tool_name} async result: {result}")
+            return result
         except Exception as e:
             logger.error(f"Error calling MCP tool {self.tool_name}: {e}")
             return f"工具调用失败: {str(e)}"
@@ -48,7 +101,8 @@ def create_langchain_tools() -> List[BaseTool]:
             tool = MCPToolWrapper(
                 name=tool_info["name"],
                 description=tool_info["description"],
-                tool_name=tool_info["name"]
+                tool_name=tool_info["name"],
+                input_schema=tool_info.get("input_schema")
             )
             tools.append(tool)
 
@@ -73,3 +127,10 @@ def get_langchain_tools() -> List[BaseTool]:
         _langchain_tools = create_langchain_tools()
 
     return _langchain_tools
+
+
+def refresh_langchain_tools() -> List[BaseTool]:
+    """刷新 LangChain 工具列表"""
+    global _langchain_tools
+    _langchain_tools = None
+    return get_langchain_tools()

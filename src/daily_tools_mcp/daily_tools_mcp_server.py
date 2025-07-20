@@ -1,188 +1,191 @@
 # src/daily_tools_mcp/daily_tools_mcp_server.py
 
 import asyncio
-import logging
 import sys
 import os
+import logging
+from typing import Any, Sequence
 import json
 
-# 动态添加项目根目录到 sys.path
-try:
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    if project_root not in sys.path:
-        sys.path.insert(0, project_root)
-except NameError:
-    sys.path.insert(0, os.path.abspath('.'))
+# 添加项目路径到 Python 路径
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_dir, '..', '..'))
+sys.path.insert(0, project_root)
 
-# 使用正确的 MCP SDK 导入
+# MCP 服务器导入
 from mcp.server.models import InitializationOptions
-from mcp.server.stdio import stdio_server
 from mcp.server import NotificationOptions, Server
+from mcp.server.stdio import stdio_server
 from mcp.types import (
+    CallToolRequest,
     CallToolResult,
+    ListToolsRequest,
     ListToolsResult,
     Tool,
     TextContent,
 )
 
 # 导入工具
-from src.daily_tools_mcp.tools import *
-from src.daily_tools_mcp.tools.base_tool import BaseTool
+from tools.logistics_tool import LogisticsTool
 
-# 设置日志 - 使用标准错误输出，避免与 stdio 通信冲突
+# 配置日志
 logging.basicConfig(
-    stream=sys.stderr,
-    level=logging.DEBUG,  # 改为 DEBUG 级别
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    force=True
-)
-logger = logging.getLogger("daily_tools_mcp_server")
-
-# 创建服务器实例
-server = Server("daily_tools_mcp")
-
-# 工具注册表
-tools_registry: dict[str, BaseTool] = {}
-
-
-def load_and_register_tools():
-    """加载和注册工具"""
-    logger.info("Starting to load and register tools...")
-
-    tool_classes_to_register = [
-        LogisticsTool,
-        # 添加其他工具类
+    handlers=[
+        logging.StreamHandler(sys.stderr)  # 使用 stderr 避免与 stdio 通信冲突
     ]
+)
+logger = logging.getLogger("SERVER")
 
-    for tool_class in tool_classes_to_register:
+
+class DailyToolsMCPServer:
+    def __init__(self):
+        # 创建 MCP 服务器实例
+        self.server = Server("daily_tools_mcp")
+
+        # 工具实例
+        self.tools = {}
+
+        # 注册处理器
+        self._register_handlers()
+
+        # 初始化工具
+        self._initialize_tools()
+
+    def _initialize_tools(self):
+        """初始化所有工具"""
+        logger.info("Starting to load and register tools...")
+
         try:
-            logger.debug(f"Attempting to register tool: {tool_class.__name__}")
-            instance = tool_class()
-            if isinstance(instance, BaseTool):
-                tools_registry[instance.get_name()] = instance
-                logger.info(f"Successfully registered tool: {instance.get_name()}")
-            else:
-                logger.warning(f"Tool {tool_class.__name__} is not a BaseTool instance")
+            # 初始化物流工具
+            logistics_tool = LogisticsTool()
+            self.tools['track_logistics'] = logistics_tool
+            logger.info("Successfully registered tool: track_logistics")
+
+            logger.info(f"Successfully registered {len(self.tools)} tools: {list(self.tools.keys())}")
+
         except Exception as e:
-            logger.exception(f"Failed to register tool {tool_class.__name__}: {e}")
+            logger.error(f"Error initializing tools: {e}")
+            raise
 
+    def _register_handlers(self):
+        """注册请求处理器"""
+        logger.debug("Registering handler for ListToolsRequest")
+        logger.debug("Registering handler for CallToolRequest")
 
-# 加载工具
-load_and_register_tools()
+        @self.server.list_tools()
+        async def handle_list_tools() -> list[Tool]:
+            """处理工具列表请求"""
+            logger.info("Received list_tools request")
 
+            tools = []
+            for tool_name, tool_instance in self.tools.items():
+                try:
+                    # 获取工具描述和参数
+                    tool_info = Tool(
+                        name=tool_name,
+                        description=getattr(tool_instance, 'description', f"Tool: {tool_name}"),
+                        inputSchema={
+                            "type": "object",
+                            "properties": getattr(tool_instance, 'parameters', {}),
+                            "required": getattr(tool_instance, 'required_params', [])
+                        }
+                    )
+                    tools.append(tool_info)
+                    logger.debug(f"Added tool to list: {tool_name}")
 
-@server.list_tools()
-async def handle_list_tools() -> ListToolsResult:
-    """处理工具列表请求"""
-    logger.info(f"Handling list_tools request. Available tools: {list(tools_registry.keys())}")
+                except Exception as e:
+                    logger.error(f"Error processing tool {tool_name}: {e}")
 
-    tools = []
-    for name, instance in tools_registry.items():
-        try:
-            tool = Tool(
-                name=name,
-                description=instance.get_description(),
-                inputSchema=instance.get_input_schema()
-            )
-            tools.append(tool)
-            logger.debug(f"Added tool to list: {name}")
-        except Exception as e:
-            logger.error(f"Error creating tool descriptor for {name}: {e}")
+            logger.info(f"Returning {len(tools)} tools")
+            return tools
 
-    logger.info(f"Returning {len(tools)} tools to client")
-    return ListToolsResult(tools=tools)
+        @self.server.call_tool()
+        async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
+            """处理工具调用请求"""
+            logger.info(f"Received call_tool request: {name} with arguments: {arguments}")
 
+            try:
+                if name not in self.tools:
+                    error_msg = f"Tool '{name}' not found. Available tools: {list(self.tools.keys())}"
+                    logger.error(error_msg)
+                    return [TextContent(type="text", text=f"Error: {error_msg}")]
 
-@server.call_tool()
-async def handle_call_tool(name: str, arguments: dict) -> CallToolResult:
-    """处理工具调用请求"""
-    logger.info(f"Calling tool: {name} with args: {arguments}")
+                tool_instance = self.tools[name]
 
-    instance = tools_registry.get(name)
-    if not instance:
-        error_msg = f"Unknown tool: {name}. Available tools: {list(tools_registry.keys())}"
-        logger.error(error_msg)
-        return CallToolResult(
-            content=[TextContent(type="text", text=error_msg)],
-            isError=True
-        )
+                # 调用工具
+                if hasattr(tool_instance, 'execute'):
+                    result = await tool_instance.execute(**arguments)
+                elif hasattr(tool_instance, 'run'):
+                    result = tool_instance.run(**arguments)
+                else:
+                    result = str(tool_instance)
 
-    try:
-        result = await instance.execute(arguments)
-        logger.info(f"Tool {name} executed successfully")
-        return CallToolResult(
-            content=[TextContent(type="text", text=str(result))]
-        )
-    except Exception as e:
-        error_msg = f"Error executing tool {name}: {str(e)}"
-        logger.exception(error_msg)
-        return CallToolResult(
-            content=[TextContent(type="text", text=error_msg)],
-            isError=True
-        )
+                logger.info(f"Tool {name} executed successfully")
+                return [TextContent(type="text", text=str(result))]
+
+            except Exception as e:
+                error_msg = f"Error executing tool {name}: {str(e)}"
+                logger.error(error_msg)
+                return [TextContent(type="text", text=f"Error: {error_msg}")]
+
+    async def run(self):
+        """运行服务器"""
+        logger.info("Server capabilities initialized. Starting stdio server...")
+
+        # 使用 stdio_server 运行
+        async with stdio_server() as (read_stream, write_stream):
+            logger.info("Stdio streams established. Server is ready and waiting for client initialization.")
+
+            try:
+                await self.server.run(
+                    read_stream,
+                    write_stream,
+                    InitializationOptions(
+                        server_name="daily_tools_mcp",
+                        server_version="1.0.0",
+                        capabilities=self.server.get_capabilities(
+                            notification_options=NotificationOptions(),
+                            experimental_capabilities={}
+                        )
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Server run error: {e}")
+                raise
+            finally:
+                logger.info("Server run loop has exited.")
 
 
 async def main():
     """主函数"""
+    logger.info("=" * 50)
+    logger.info("Starting Daily Tools MCP Server...")
+    logger.info(f"Python version: {sys.version}")
+    logger.info(f"Working directory: {os.getcwd()}")
+
     try:
-        logger.info("=" * 50)
-        logger.info("Starting Daily Tools MCP Server...")
-        logger.info(f"Python version: {sys.version}")
-        logger.info(f"Working directory: {os.getcwd()}")
-        logger.info(f"Server script path: {__file__}")
-
-        # 确保至少有一个工具注册
-        if not tools_registry:
-            logger.error("CRITICAL: No tools registered! Server will be useless.")
-            sys.exit(1)
-        else:
-            logger.info(f"Successfully registered {len(tools_registry)} tools: {list(tools_registry.keys())}")
-
-        # 创建初始化选项
-        init_options = InitializationOptions(
-            server_name="daily_tools_mcp",
-            server_version="0.1.0",
-            capabilities=server.get_capabilities(
-                notification_options=NotificationOptions(),
-                experimental_capabilities={},
-            ),
-        )
-
-        logger.info("Server capabilities initialized")
-        logger.info("Starting stdio server...")
-
-        # 使用 stdio_server 运行服务器
-        async with stdio_server() as (read_stream, write_stream):
-            logger.info("Stdio streams established")
-            logger.info("Server is ready to accept connections")
-
-            # 运行服务器
-            await server.run(
-                read_stream,
-                write_stream,
-                init_options,
-            )
+        # 创建并运行服务器
+        server = DailyToolsMCPServer()
+        await server.run()
 
     except KeyboardInterrupt:
-        logger.info("Server interrupted by user")
+        logger.info("Received interrupt signal, shutting down...")
     except Exception as e:
-        logger.exception(f"FATAL: Server error: {e}")
-        sys.exit(1)
+        logger.error(f"Server error: {e}")
+        raise
+    finally:
+        logger.info("Server shutdown complete.")
+        sys.stdout.flush()
+        sys.stderr.flush()
 
 
 if __name__ == "__main__":
     try:
-        # 设置事件循环策略 (Windows)
-        if sys.platform == 'win32':
-            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-
-        logger.info("Starting asyncio event loop...")
         asyncio.run(main())
-
     except KeyboardInterrupt:
-        logger.info("Server stopped by user")
+        logger.info("Server interrupted by user")
     except Exception as e:
-        logger.exception(f"FATAL: Unhandled exception: {e}")
+        logger.error(f"Fatal error: {e}")
         sys.exit(1)
-    finally:
-        logger.info("Server shutdown complete")

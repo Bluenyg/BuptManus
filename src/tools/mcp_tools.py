@@ -1,294 +1,242 @@
 # src/tools/mcp_tools.py
 
 import asyncio
+import subprocess
 import sys
 import os
 import logging
-import threading
-import subprocess
-import time
+import json
 from typing import List, Dict, Any, Optional
+import time
+import threading
 
+# MCP 客户端导入
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
-class MCPClientManager:
-    """MCP 客户端管理器 - 简化版本"""
-    _instance = None
-    _lock = threading.Lock()
-
-    def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
-        return cls._instance
-
+class MCPTools:
     def __init__(self):
-        if not self._initialized:
-            self.client_session: Optional[ClientSession] = None
-            self.stdio_client_manager = None
-            self.tools_cache: Optional[List[Dict[str, Any]]] = None
-            self.server_process: Optional[subprocess.Popen] = None
-            self._initialized = True
+        self.available_tools: List[Dict[str, Any]] = []
+        self.server_params: Optional[StdioServerParameters] = None
+        self.is_initialized = False
 
-    def _get_server_path(self) -> str:
-        """获取服务器路径"""
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        server_path = os.path.join(
-            current_dir, "..", "daily_tools_mcp", "daily_tools_mcp_server.py"
-        )
-        server_path = os.path.normpath(server_path)
+    async def connect_to_mcp_server(self, max_retries: int = 3, retry_delay: float = 1.0) -> bool:
+        """初始化 MCP 服务器连接参数"""
+        logger.info("Initializing MCP server connection parameters...")
 
-        if not os.path.exists(server_path):
-            raise FileNotFoundError(f"MCP server not found at: {server_path}")
-
-        return server_path
-
-    async def _create_session_with_retry(self, max_attempts: int = 3) -> ClientSession:
-        """创建会话，支持重试"""
-        server_path = self._get_server_path()
-
-        for attempt in range(max_attempts):
-            logger.info(f"Attempt {attempt + 1}/{max_attempts} to create MCP session")
-
+        for attempt in range(max_retries):
             try:
-                # 准备环境
-                env = os.environ.copy()
-                env['PYTHONPATH'] = os.pathsep.join(sys.path)
-                env['PYTHONUNBUFFERED'] = '1'
-                env['PYTHONIOENCODING'] = 'utf-8'
+                # 确定服务器脚本的绝对路径
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                project_root = os.path.join(script_dir, '..', '..')
+                server_script = os.path.join(project_root, 'src', 'daily_tools_mcp', 'daily_tools_mcp_server.py')
 
-                # 创建服务器参数
-                server_params = StdioServerParameters(
+                if not os.path.exists(server_script):
+                    logger.error(f"Server script not found at: {server_script}")
+                    return False
+
+                logger.info(f"Server script found at: {server_script}")
+
+                # 创建并保存服务器参数
+                self.server_params = StdioServerParameters(
                     command=sys.executable,
-                    args=[server_path],
-                    env=env
+                    args=[server_script],
+                    env=None
                 )
 
-                logger.info(f"Starting MCP server: {sys.executable} {server_path}")
-
-                # 创建 stdio 客户端
-                self.stdio_client_manager = stdio_client(server_params)
-                read_stream, write_stream = await self.stdio_client_manager.__aenter__()
-
-                # 等待一小段时间让服务器完全启动
-                await asyncio.sleep(0.5)
-
-                # 创建客户端会话
-                session = ClientSession(read_stream, write_stream)
-
-                logger.info("Initializing MCP client session...")
-
-                # 尝试初始化，使用较短的超时时间但多次重试
-                try:
-                    await asyncio.wait_for(session.initialize(), timeout=10.0)
-                    logger.info("MCP client session initialized successfully")
-                    return session
-
-                except asyncio.TimeoutError:
-                    logger.warning(f"Session initialization timed out on attempt {attempt + 1}")
-                    await self._cleanup_current_attempt()
-                    if attempt < max_attempts - 1:
-                        await asyncio.sleep(1)  # 等待后重试
-                        continue
-                    else:
-                        raise
+                # 测试连接并获取工具列表
+                success = await self._test_connection_and_get_tools()
+                if success:
+                    self.is_initialized = True
+                    logger.info("MCP server connection parameters initialized successfully")
+                    return True
 
             except Exception as e:
-                logger.error(f"Attempt {attempt + 1} failed: {e}")
-                await self._cleanup_current_attempt()
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(1)
-                    continue
+                logger.error(f"Attempt {attempt + 1} failed to initialize MCP connection: {e}")
+                if attempt < max_retries - 1:
+                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
                 else:
-                    raise
+                    logger.error("All initialization attempts failed")
 
-    async def _cleanup_current_attempt(self):
-        """清理当前尝试的资源"""
-        if self.stdio_client_manager:
-            try:
-                await self.stdio_client_manager.__aexit__(None, None, None)
-            except Exception:
-                pass
-            self.stdio_client_manager = None
+        return False
 
-    async def get_session(self) -> ClientSession:
-        """获取或创建 MCP 客户端会话"""
-        if self.client_session is None:
-            logger.info("Creating new MCP session")
-            self.client_session = await self._create_session_with_retry()
-        return self.client_session
-
-    async def get_tools(self) -> List[Dict[str, Any]]:
-        """获取工具列表"""
-        if self.tools_cache is None:
-            try:
-                session = await self.get_session()
-                logger.info("Listing tools from MCP server...")
-
-                # 使用较短的超时时间
-                response = await asyncio.wait_for(
-                    session.list_tools(),
-                    timeout=10.0
-                )
-
-                tools_list = [
-                    {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "inputSchema": tool.inputSchema
-                    }
-                    for tool in response.tools
-                ]
-
-                self.tools_cache = tools_list
-                logger.info(f"Successfully loaded {len(self.tools_cache)} MCP tools")
-
-            except Exception as e:
-                logger.exception("Failed to get MCP tools")
-                self.tools_cache = []
-
-        return self.tools_cache
-
-    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
-        """调用工具"""
+    async def _test_connection_and_get_tools(self) -> bool:
+        """测试连接并获取工具列表"""
         try:
-            session = await self.get_session()
-            logger.info(f"Calling tool: {tool_name}")
+            async with stdio_client(self.server_params) as (read, write):
+                async with ClientSession(read, write) as session:
+                    logger.info("Testing connection to MCP server")
 
-            response = await asyncio.wait_for(
-                session.call_tool(tool_name, arguments),
-                timeout=20.0
-            )
+                    # 初始化连接
+                    init_result = await session.initialize()
+                    logger.info(f"Server initialization result: {init_result}")
 
-            if response.content and response.content[0].text:
-                return response.content[0].text
-            return ""
+                    # 获取可用工具列表
+                    tools_result = await session.list_tools()
+                    logger.info(f"Retrieved {len(tools_result.tools)} tools from server")
+
+                    # 存储工具信息
+                    self.available_tools = []
+                    for tool in tools_result.tools:
+                        tool_info = {
+                            'name': tool.name,
+                            'description': tool.description,
+                            'input_schema': tool.inputSchema
+                        }
+                        self.available_tools.append(tool_info)
+                        logger.info(f"Available tool: {tool.name} - {tool.description}")
+
+                    return True
 
         except Exception as e:
-            logger.exception(f"Failed to call MCP tool '{tool_name}'")
-            return f"工具调用失败: {str(e)}"
+            logger.error(f"Failed to test connection: {e}")
+            return False
 
-    async def close(self):
-        """关闭客户端会话"""
-        logger.info("Closing MCP client...")
+    async def call_mcp_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+        """调用 MCP 工具 - 每次调用都创建新连接"""
+        if not self.is_initialized or not self.server_params:
+            logger.error("MCP not initialized. Please connect first.")
+            return "Error: No MCP connection available"
 
-        if self.client_session:
-            try:
-                await self.client_session.close()
-            except Exception as e:
-                logger.error(f"Error closing session: {e}")
-            finally:
-                self.client_session = None
+        try:
+            logger.info(f"Calling MCP tool: {tool_name} with arguments: {arguments}")
 
-        if self.stdio_client_manager:
-            try:
-                await self.stdio_client_manager.__aexit__(None, None, None)
-            except Exception as e:
-                logger.error(f"Error exiting stdio manager: {e}")
-            finally:
-                self.stdio_client_manager = None
+            # 每次调用都创建新的连接
+            async with stdio_client(self.server_params) as (read, write):
+                async with ClientSession(read, write) as session:
+                    # 初始化会话
+                    await session.initialize()
 
-        self.tools_cache = None
+                    # 调用工具
+                    result = await session.call_tool(tool_name, arguments)
 
+                    # 处理结果
+                    if result.isError:
+                        error_msg = "Tool execution error"
+                        if result.content:
+                            error_msg = str(result.content[0].text if result.content[0].text else error_msg)
+                        logger.error(f"Tool {tool_name} returned error: {error_msg}")
+                        return f"Error: {error_msg}"
 
-# 全局客户端管理器
-_client_manager = MCPClientManager()
+                    # 成功结果
+                    if result.content and len(result.content) > 0:
+                        response = str(result.content[0].text)
+                        logger.info(f"Tool {tool_name} executed successfully")
+                        return response
+                    else:
+                        logger.warning(f"Tool {tool_name} returned empty result")
+                        return "Tool executed but returned no content"
 
+        except Exception as e:
+            error_msg = f"Error calling tool {tool_name}: {e}"
+            logger.exception(error_msg)
+            return f"Error: {error_msg}"
 
-class EventLoopManager:
-    _loop: Optional[asyncio.AbstractEventLoop] = None
-    _thread: Optional[threading.Thread] = None
-    _lock = threading.Lock()
+    def get_available_tools(self) -> List[Dict[str, Any]]:
+        """获取可用工具列表"""
+        return self.available_tools
 
-    @classmethod
-    def get_loop(cls) -> asyncio.AbstractEventLoop:
-        with cls._lock:
-            if cls._loop is None or cls._loop.is_closed():
-                cls._start_loop()
-            return cls._loop
-
-    @classmethod
-    def _start_loop(cls):
-        def run_loop():
-            # 在 Windows 上使用 ProactorEventLoop
-            if sys.platform == 'win32':
-                asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-
-            cls._loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(cls._loop)
-            cls._loop.run_forever()
-
-        cls._thread = threading.Thread(target=run_loop, daemon=True)
-        cls._thread.start()
-
-        # 等待事件循环启动
-        max_wait = 50  # 最多等待 5 秒
-        wait_count = 0
-        while (cls._loop is None or not cls._loop.is_running()) and wait_count < max_wait:
-            time.sleep(0.1)
-            wait_count += 1
-
-        if wait_count >= max_wait:
-            raise RuntimeError("Failed to start event loop")
-
-    @classmethod
-    def run_coroutine(cls, coro, timeout=60):
-        loop = cls.get_loop()
-        future = asyncio.run_coroutine_threadsafe(coro, loop)
-        return future.result(timeout=timeout)
+    async def close_connection(self):
+        """清理连接信息"""
+        self.server_params = None
+        self.is_initialized = False
+        self.available_tools = []
+        logger.info("MCP connection info cleared")
 
 
-# 同步包装器函数
-def get_mcp_tools_sync() -> List[Dict[str, Any]]:
-    """同步获取 MCP 工具列表"""
+def _run_async_safely(coro):
+    """安全地运行异步协程"""
     try:
-        logger.info("Getting MCP tools synchronously...")
-        tools = EventLoopManager.run_coroutine(_client_manager.get_tools(), timeout=30)
-        logger.info(f"Got {len(tools)} tools")
-        return tools
-    except Exception:
-        logger.exception("Failed to get MCP tools synchronously")
-        return []
+        # 检查是否已经在事件循环中
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # 如果已经在事件循环中，创建一个 Task
+            return asyncio.create_task(coro)
+        else:
+            # 如果不在事件循环中，创建新的事件循环
+            return asyncio.run(coro)
+    except RuntimeError:
+        # 没有运行的事件循环，创建新的
+        return asyncio.run(coro)
+
+
+# 全局 MCP 工具实例
+_mcp_tools_instance = None
+_instance_lock = threading.Lock()
+
+
+def get_mcp_tools_sync():
+    """获取全局 MCP 工具实例（单例模式）"""
+    global _mcp_tools_instance
+
+    if _mcp_tools_instance is None:
+        with _instance_lock:
+            if _mcp_tools_instance is None:
+                _mcp_tools_instance = MCPTools()
+
+                # 在后台线程中初始化连接
+                def init_in_background():
+                    try:
+                        asyncio.run(_mcp_tools_instance.connect_to_mcp_server())
+                    except Exception as e:
+                        logger.error(f"Failed to initialize MCP in background: {e}")
+
+                init_thread = threading.Thread(target=init_in_background, daemon=True)
+                init_thread.start()
+
+                # 给初始化一些时间
+                time.sleep(2)
+
+    return _mcp_tools_instance
+
+
+async def call_mcp_tool_async(tool_name: str, arguments: Dict[str, Any]) -> str:
+    """异步调用 MCP 工具"""
+    mcp_tools = get_mcp_tools_instance()
+
+    # 如果未初始化，尝试连接
+    if not mcp_tools.is_initialized:
+        logger.info("MCP not initialized, attempting to connect...")
+        success = await mcp_tools.connect_to_mcp_server()
+        if not success:
+            return "Error: Failed to connect to MCP server"
+
+    return await mcp_tools.call_mcp_tool(tool_name, arguments)
 
 
 def call_mcp_tool_sync(tool_name: str, arguments: Dict[str, Any]) -> str:
     """同步调用 MCP 工具"""
     try:
-        return EventLoopManager.run_coroutine(
-            _client_manager.call_tool(tool_name, arguments),
-            timeout=30
-        )
-    except Exception:
-        logger.exception(f"Failed to call MCP tool '{tool_name}' synchronously")
-        return f"调用工具失败"
+        # 检查是否在事件循环中
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # 在事件循环中，需要创建任务
+            task = asyncio.create_task(call_mcp_tool_async(tool_name, arguments))
+            # 注意：这里不能直接 await，因为我们在同步函数中
+            # 实际上这种情况下应该使用异步版本
+            logger.warning("call_mcp_tool_sync called from within event loop, consider using async version")
+            return "Error: Cannot run sync version from within event loop"
+    except RuntimeError:
+        # 没有运行的事件循环，可以创建新的
+        return asyncio.run(call_mcp_tool_async(tool_name, arguments))
 
 
-# 异步函数
-async def get_mcp_tools() -> List[Dict[str, Any]]:
-    return await _client_manager.get_tools()
+def get_available_mcp_tools() -> List[Dict[str, Any]]:
+    """获取可用的 MCP 工具列表"""
+    mcp_tools = get_mcp_tools_instance()
+    return mcp_tools.get_available_tools()
 
 
-async def call_mcp_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
-    return await _client_manager.call_tool(tool_name, arguments)
+# 为了兼容性，保留一些旧的函数名
+def get_mcp_tools() -> List[Dict[str, Any]]:
+    """获取 MCP 工具列表（兼容性函数）"""
+    return get_available_mcp_tools()
 
 
-# 清理函数
-def cleanup_mcp_client():
-    logger.info("Cleaning up MCP client...")
-    if _client_manager._initialized:
-        try:
-            EventLoopManager.run_coroutine(_client_manager.close(), timeout=5)
-        except Exception:
-            logger.exception("Error during MCP client cleanup")
-
-
-import atexit
-
-atexit.register(cleanup_mcp_client)
+def call_mcp_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
+    """调用 MCP 工具（兼容性函数）"""
+    return call_mcp_tool_sync(tool_name, arguments)
