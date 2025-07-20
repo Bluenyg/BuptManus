@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply transition-colors duration-300;
+  background-color: #f7f9fc; /* ✅ 更干净的白蓝底 */
+}
+
+input,
+textarea {
+  outline: none;
+}
+
+.markdown {
+  line-height: 1.75;
+
+  a {
+    color: blue;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  h1 {
+    @apply text-2xl font-bold;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  h2 {
+    @apply text-xl font-bold;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  h3 {
+    @apply text-lg font-bold;
+    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  h4 {
+    @apply text-base font-bold;
+    margin-bottom: 0.5rem;
+  }
+
+  h5 {
+    @apply text-sm font-bold;
+  }
+
+  h6 {
+    @apply text-xs font-bold;
+  }
+
+  ul {
+    @apply list-disc pl-4;
+  }
+
+  ol {
+    @apply list-decimal pl-4;
+  }
+}
