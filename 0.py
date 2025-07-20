@@ -1,43 +1,60 @@
-# test_browser_env.py
+# test_mcp_simple.py
+
 import asyncio
 import logging
-from playwright.async_api import async_playwright
+import sys
+import os
 
+# 添加项目路径
+sys.path.insert(0, os.path.abspath('.'))
+
+from src.tools.mcp_tools import get_mcp_tools_sync, call_mcp_tool_sync
+
+# 设置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-async def playwright():
-    """测试 Playwright 环境"""
+def mcp_sync():
+    """同步测试 MCP 连接"""
+    print("=" * 50)
+    print("Testing MCP connection (synchronous)...")
+
     try:
-        async with async_playwright() as p:
-            logger.info("Playwright started successfully")
+        # 测试获取工具列表
+        print("Fetching tools...")
+        tools = get_mcp_tools_sync()
+        print(f"✓ Found {len(tools)} tools:")
 
-            browser = await p.chromium.launch(
-                headless=True,
-                args=['--no-sandbox', '--disable-dev-shm-usage']
-            )
-            logger.info("Browser launched successfully")
+        for tool in tools:
+            print(f"  - {tool['name']}: {tool['description']}")
 
-            page = await browser.new_page()
-            logger.info("Page created successfully")
+        # 如果有工具，测试调用
+        if tools:
+            tool_name = tools[0]['name']
+            print(f"\n✓ Testing tool: {tool_name}")
 
-            await page.goto('https://www.baidu.com')
-            title = await page.title()
-            logger.info(f"Page title: {title}")
+            # 根据 track_logistics 工具调整参数
+            if tool_name == "track_logistics":
+                test_args = {"tracking_number": "TEST123"}
+            else:
+                test_args = {}
 
-            await browser.close()
-            logger.info("Browser closed successfully")
+            result = call_mcp_tool_sync(tool_name, test_args)
+            print(f"✓ Result: {result}")
+            print("✓ MCP connection test PASSED!")
+        else:
+            print("⚠ No tools available to test")
 
-            return True
     except Exception as e:
-        logger.error(f"Test failed: {e}")
+        print(f"✗ Error: {e}")
+        import traceback
+        traceback.print_exc()
         return False
+
+    return True
 
 
 if __name__ == "__main__":
-    success = asyncio.run(playwright())
-    if success:
-        print("✅ Playwright environment is working correctly")
-    else:
-        print("❌ Playwright environment has issues")
+    success = mcp_sync()
+    sys.exit(0 if success else 1)
