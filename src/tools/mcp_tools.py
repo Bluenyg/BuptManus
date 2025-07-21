@@ -22,6 +22,57 @@ class MCPTools:
         self.available_tools: List[Dict[str, Any]] = []
         self.server_params: Optional[StdioServerParameters] = None
         self.is_initialized = False
+        self._connection_lock = threading.Lock()  # 添加连接锁
+
+    def __iter__(self):
+        """使对象可迭代"""
+        return iter(self.available_tools)
+
+    def __len__(self):
+        """返回工具数量"""
+        return len(self.available_tools)
+
+    async def call_mcp_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+        """调用 MCP 工具 - 每次调用都创建新连接"""
+        if not self.is_initialized or not self.server_params:
+            logger.error("MCP not initialized. Please connect first.")
+            return "Error: No MCP connection available"
+
+        # 使用连接锁确保线程安全
+        with self._connection_lock:
+            try:
+                logger.info(f"Calling MCP tool: {tool_name} with arguments: {arguments}")
+
+                # 每次调用都创建新的连接
+                async with stdio_client(self.server_params) as (read, write):
+                    async with ClientSession(read, write) as session:
+                        # 初始化会话
+                        await session.initialize()
+
+                        # 调用工具
+                        result = await session.call_tool(tool_name, arguments)
+
+                        # 处理结果
+                        if result.isError:
+                            error_msg = "Tool execution error"
+                            if result.content:
+                                error_msg = str(result.content[0].text if result.content[0].text else error_msg)
+                            logger.error(f"Tool {tool_name} returned error: {error_msg}")
+                            return f"Error: {error_msg}"
+
+                        # 成功结果
+                        if result.content and len(result.content) > 0:
+                            response = str(result.content[0].text)
+                            logger.info(f"Tool {tool_name} executed successfully")
+                            return response
+                        else:
+                            logger.warning(f"Tool {tool_name} returned empty result")
+                            return "Tool executed but returned no content"
+
+            except Exception as e:
+                error_msg = f"Error calling tool {tool_name}: {e}"
+                logger.exception(error_msg)
+                return f"Error: {error_msg}"
 
     async def connect_to_mcp_server(self, max_retries: int = 3, retry_delay: float = 1.0) -> bool:
         """初始化 MCP 服务器连接参数"""
@@ -96,45 +147,6 @@ class MCPTools:
             logger.error(f"Failed to test connection: {e}")
             return False
 
-    async def call_mcp_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
-        """调用 MCP 工具 - 每次调用都创建新连接"""
-        if not self.is_initialized or not self.server_params:
-            logger.error("MCP not initialized. Please connect first.")
-            return "Error: No MCP connection available"
-
-        try:
-            logger.info(f"Calling MCP tool: {tool_name} with arguments: {arguments}")
-
-            # 每次调用都创建新的连接
-            async with stdio_client(self.server_params) as (read, write):
-                async with ClientSession(read, write) as session:
-                    # 初始化会话
-                    await session.initialize()
-
-                    # 调用工具
-                    result = await session.call_tool(tool_name, arguments)
-
-                    # 处理结果
-                    if result.isError:
-                        error_msg = "Tool execution error"
-                        if result.content:
-                            error_msg = str(result.content[0].text if result.content[0].text else error_msg)
-                        logger.error(f"Tool {tool_name} returned error: {error_msg}")
-                        return f"Error: {error_msg}"
-
-                    # 成功结果
-                    if result.content and len(result.content) > 0:
-                        response = str(result.content[0].text)
-                        logger.info(f"Tool {tool_name} executed successfully")
-                        return response
-                    else:
-                        logger.warning(f"Tool {tool_name} returned empty result")
-                        return "Tool executed but returned no content"
-
-        except Exception as e:
-            error_msg = f"Error calling tool {tool_name}: {e}"
-            logger.exception(error_msg)
-            return f"Error: {error_msg}"
 
     def get_available_tools(self) -> List[Dict[str, Any]]:
         """获取可用工具列表"""
@@ -212,17 +224,25 @@ def call_mcp_tool_sync(tool_name: str, arguments: Dict[str, Any]) -> str:
     """同步调用 MCP 工具"""
     try:
         # 检查是否在事件循环中
-        loop = asyncio.get_running_loop()
-        if loop.is_running():
-            # 在事件循环中，需要创建任务
-            task = asyncio.create_task(call_mcp_tool_async(tool_name, arguments))
-            # 注意：这里不能直接 await，因为我们在同步函数中
-            # 实际上这种情况下应该使用异步版本
-            logger.warning("call_mcp_tool_sync called from within event loop, consider using async version")
-            return "Error: Cannot run sync version from within event loop"
-    except RuntimeError:
-        # 没有运行的事件循环，可以创建新的
-        return asyncio.run(call_mcp_tool_async(tool_name, arguments))
+        try:
+            loop = asyncio.get_running_loop()
+            # 在事件循环中，使用 run_in_executor
+            import concurrent.futures
+
+            def run_async():
+                return asyncio.run(call_mcp_tool_async(tool_name, arguments))
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(run_async)
+                return future.result(timeout=30)
+
+        except RuntimeError:
+            # 没有运行的事件循环，可以直接运行
+            return asyncio.run(call_mcp_tool_async(tool_name, arguments))
+
+    except Exception as e:
+        logger.error(f"Error in call_mcp_tool_sync: {e}")
+        return f"Error: {str(e)}"
 
 
 def get_available_mcp_tools() -> List[Dict[str, Any]]:
