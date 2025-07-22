@@ -54,45 +54,54 @@ export default function HomePage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleSendMessage = useCallback(
-    async (
-      content: string,
-      config: { deepThinkingMode: boolean; searchBeforePlanning: boolean }
-    ) => {
-      let imageBase64: string | null = null;
+  // 文件: webui/src/app/page.tsx
 
-      if (selectedFile) {
-        imageBase64 = await new Promise<string | null>((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64 = reader.result as string;
-            resolve(base64);
-          };
-          reader.onerror = () => resolve(null);
-          reader.readAsDataURL(selectedFile);
-        });
-        handleClearFile();
-      }
+const handleSendMessage = useCallback(
+  async (
+    text: string, // 'content' 参数现在代表输入的文本
+    config: { deepThinkingMode: boolean; searchBeforePlanning: boolean }
+  ) => {
+    let imageBase64: string | null = null;
 
-      const abortController = new AbortController();
-      abortControllerRef.current = abortController;
+    if (selectedFile) {
+      imageBase64 = await new Promise<string | null>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(selectedFile);
+      });
+      handleClearFile();
+    }
 
-      await sendMessage(
-        {
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    // --- 这是关键修改 ---
+    const messageToSend = imageBase64
+      ? {
           id: nanoid(),
-          role: 'user',
-          type: imageBase64 ? 'multimodal' : 'text',
-          content,
-          image: imageBase64,
-        },
-        config,
-        { abortSignal: abortController.signal }
-      );
+          role: 'user' as const,
+          type: 'multimodal' as const,
+          content: {
+            text: text,
+            image: imageBase64,
+          },
+        }
+      : {
+          id: nanoid(),
+          role: 'user' as const,
+          type: 'text' as const,
+          content: text,
+        };
 
-      abortControllerRef.current = null;
-    },
-    [selectedFile]
-  );
+    await sendMessage(messageToSend, config, { abortSignal: abortController.signal });
+
+    abortControllerRef.current = null;
+  },
+  [selectedFile]
+);
+
+
 
   const chatScrollAnchorRef = useRef<HTMLDivElement>(null);
 

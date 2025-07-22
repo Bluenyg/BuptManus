@@ -6,6 +6,7 @@ import json
 import logging
 import asyncio
 import base64
+import re  # 添加这个import
 from typing import Dict, List, Any, Optional, Union
 
 from fastapi import FastAPI, HTTPException, Request, File, Form, UploadFile
@@ -39,17 +40,14 @@ app.add_middleware(
 # Create the graph
 graph = build_graph()
 
-
 class ContentItem(BaseModel):
     type: str
     text: Optional[str] = None
     image_url: Optional[Dict[str, str]] = None
 
-
 class ChatMessage(BaseModel):
     role: str
     content: Union[str, List[ContentItem]]
-
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
@@ -58,6 +56,51 @@ class ChatRequest(BaseModel):
     deep_thinking_mode: bool = False
     search_before_planning: bool = False
 
+# 添加这个新函数
+def parse_message_content(content: str) -> List[Dict[str, Any]]:
+    """
+    解析消息内容，将包含图片的文本转换为多模态格式
+
+    Args:
+        content: 原始消息内容，可能包含文本和图片
+
+    Returns:
+        符合多模态格式的内容数组
+    """
+    # 使用正则表达式匹配图片格式: [image]: data:image/...
+    image_pattern = r'\[image\]:\s*(data:image/[^;]+;base64,[A-Za-z0-9+/=]+)'
+
+    # 查找所有图片
+    images = re.findall(image_pattern, content)
+
+    # 移除图片标记，获取纯文本
+    text_content = re.sub(image_pattern, '', content).strip()
+    # 清理多余的换行符
+    text_content = re.sub(r'\n\s*\n', '\n', text_content).strip()
+
+    result = []
+
+    # 如果有文本内容，添加文本部分
+    if text_content:
+        result.append({
+            "type": "text",
+            "text": text_content
+        })
+
+    # 添加所有图片
+    for image_data in images:
+        result.append({
+            "type": "image_url",
+            "image_url": {
+                "url": image_data
+            }
+        })
+
+    # 如果没有任何内容，返回原始内容作为文本
+    if not result:
+        result = [{"type": "text", "text": content}]
+
+    return result
 
 # 统一的聊天接口，现在可以处理 JSON 和 multipart/form-data
 @app.post("/api/chat/stream")
@@ -82,7 +125,27 @@ async def chat_stream_endpoint(req: Request):
             json_body = await req.json()
             # 使用 Pydantic 模型进行验证和解析
             chat_req = ChatRequest(**json_body)
-            messages_data = [msg.dict() for msg in chat_req.messages]
+
+            # 修改这部分：处理多模态内容
+            messages_data = []
+            for msg in chat_req.messages:
+                if isinstance(msg.content, str):
+                    # 检查是否包含图片
+                    if '[image]:' in msg.content:
+                        # 多模态消息，解析内容
+                        content = parse_message_content(msg.content)
+                    else:
+                        # 纯文本消息
+                        content = msg.content
+                else:
+                    # 已经是正确格式的多模态内容
+                    content = [item.dict() for item in msg.content] if hasattr(msg.content[0], 'dict') else msg.content
+
+                messages_data.append({
+                    "role": msg.role,
+                    "content": content
+                })
+
             debug = chat_req.debug
             deep_thinking_mode = chat_req.deep_thinking_mode
             search_before_planning = chat_req.search_before_planning

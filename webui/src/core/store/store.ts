@@ -51,13 +51,7 @@ export function updateMessage(message: Partial<Message> & { id: string }) {
 }
 
 export async function sendMessage(
-  message: {
-    id: string;
-    role: string;
-    type: string;
-    content: string;
-    image: string | null;
-  },
+  message:Message,
   params: { deepThinkingMode: boolean; searchBeforePlanning: boolean },
   options: { abortSignal?: AbortSignal } = {},
 ) {

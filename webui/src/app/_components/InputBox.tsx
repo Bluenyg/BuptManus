@@ -151,13 +151,7 @@ export function InputBox({
 
         {/* ✅ 上传 + 发送按钮组 */}
         <div className="flex items-center gap-2">
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={(e) => fileInputRef?.current?.dispatchEvent(new Event('change', { bubbles: true }))}
-            className="hidden"
-            accept="image/*"
-          />
+
           <button
             type="button"
             onClick={onUploadClick}
