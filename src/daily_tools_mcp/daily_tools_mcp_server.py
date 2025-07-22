@@ -60,8 +60,11 @@ class DailyToolsMCPServer:
         try:
             # 初始化物流工具
             logistics_tool = LogisticsTool()
-            self.tools['track_logistics'] = logistics_tool
-            logger.info("Successfully registered tool: track_logistics")
+            # 关键修改 1: 将工具名改为 LLM 期望的名称 "logistics_tracking"
+            # 这比让 LLM 适应你的内部命名要可靠得多
+            tool_name = "logistics_tracking"
+            self.tools[tool_name] = logistics_tool
+            logger.info(f"Successfully registered tool: {tool_name}")
 
             logger.info(f"Successfully registered {len(self.tools)} tools: {list(self.tools.keys())}")
 
@@ -82,18 +85,18 @@ class DailyToolsMCPServer:
             tools = []
             for tool_name, tool_instance in self.tools.items():
                 try:
+                    # 关键修改 2: 直接调用 get_input_schema() 方法
+                    # 这是修复工具参数无法被 LLM 感知的核心
+                    input_schema = tool_instance.get_input_schema()
+
                     # 获取工具描述和参数
                     tool_info = Tool(
                         name=tool_name,
-                        description=getattr(tool_instance, 'description', f"Tool: {tool_name}"),
-                        inputSchema={
-                            "type": "object",
-                            "properties": getattr(tool_instance, 'parameters', {}),
-                            "required": getattr(tool_instance, 'required_params', [])
-                        }
+                        description=tool_instance.get_description(),
+                        inputSchema=input_schema
                     )
                     tools.append(tool_info)
-                    logger.debug(f"Added tool to list: {tool_name}")
+                    logger.debug(f"Added tool to list: {tool_name} with schema: {input_schema}")
 
                 except Exception as e:
                     logger.error(f"Error processing tool {tool_name}: {e}")
@@ -114,20 +117,15 @@ class DailyToolsMCPServer:
 
                 tool_instance = self.tools[name]
 
-                # 调用工具
-                if hasattr(tool_instance, 'execute'):
-                    result = await tool_instance.execute(**arguments)
-                elif hasattr(tool_instance, 'run'):
-                    result = tool_instance.run(**arguments)
-                else:
-                    result = str(tool_instance)
+                # 调用工具 (这里逻辑保持不变)
+                result = await tool_instance.execute(arguments)
 
                 logger.info(f"Tool {name} executed successfully")
                 return [TextContent(type="text", text=str(result))]
 
             except Exception as e:
                 error_msg = f"Error executing tool {name}: {str(e)}"
-                logger.error(error_msg)
+                logger.error(error_msg, exc_info=True)  # 添加 exc_info=True 方便调试
                 return [TextContent(type="text", text=f"Error: {error_msg}")]
 
     async def run(self):

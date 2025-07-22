@@ -82,7 +82,7 @@ function MessageBubble({
         className={cn(
           "relative mb-8 w-fit max-w-[560px] rounded-2xl px-4 py-3 shadow-sm",
           role === "user" && "rounded-ee-none bg-primary text-white",
-          role === "assistant" && "rounded-es-none bg-white"
+          role === "assistant" && "rounded-es-none bg-white text-gray-900 dark:bg-gray-100 dark:text-black"
         )}
       >
         {children}

@@ -5,10 +5,9 @@ FastAPI application for LangManus.
 import json
 import logging
 import asyncio
-import base64 # 新增：用於 Base64 編碼
+import base64
 from typing import Dict, List, Any, Optional, Union
 
-# 導入 FastAPI 相關模組，並新增 File, Form, UploadFile
 from fastapi import FastAPI, HTTPException, Request, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -31,10 +30,10 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Create the graph
@@ -42,103 +41,106 @@ graph = build_graph()
 
 
 class ContentItem(BaseModel):
-    type: str = Field(..., description="The type of content (text, image, etc.)")
-    text: Optional[str] = Field(None, description="The text content if type is 'text'")
-    image_url: Optional[str] = Field(
-        None, description="The image URL if type is 'image'"
-    )
+    type: str
+    text: Optional[str] = None
+    image_url: Optional[Dict[str, str]] = None
 
 
 class ChatMessage(BaseModel):
-    role: str = Field(
-        ..., description="The role of the message sender (user or assistant)"
-    )
-    content: Union[str, List[ContentItem]] = Field(
-        ...,
-        description="The content of the message, either a string or a list of content items",
-    )
+    role: str
+    content: Union[str, List[ContentItem]]
 
 
 class ChatRequest(BaseModel):
-    messages: List[ChatMessage] = Field(..., description="The conversation history")
-    debug: Optional[bool] = Field(False, description="Whether to enable debug logging")
-    deep_thinking_mode: Optional[bool] = Field(
-        False, description="Whether to enable deep thinking mode"
-    )
-    search_before_planning: Optional[bool] = Field(
-        False, description="Whether to search before planning"
-    )
+    messages: List[ChatMessage]
+    conversationId: Optional[str] = None # 兼容前端可能发送的 conversationId
+    debug: bool = False
+    deep_thinking_mode: bool = False
+    search_before_planning: bool = False
 
 
-# 合并后的统一聊天接口
+# 统一的聊天接口，现在可以处理 JSON 和 multipart/form-data
 @app.post("/api/chat/stream")
-async def chat_stream_endpoint(
-        req: Request,
-        # 所有字段都从 Form 中获取
-        messages: str = Form(...),
-        debug: bool = Form(False),
-        deep_thinking_mode: bool = Form(False),
-        search_before_planning: bool = Form(False),
-        # 图片文件是可选的
-        image: Optional[UploadFile] = File(None),
-):
+async def chat_stream_endpoint(req: Request):
     """
-    统一的聊天接口，支持纯文本和带图片的多模态输入。
-    此接口接收 multipart/form-data 格式的请求。
+    Unified chat endpoint that handles both JSON and multipart/form-data requests.
+    - For JSON: Expects a body matching the ChatRequest model.
+    - For multipart/form-data: Expects fields like 'messages' (JSON string) and an optional 'image' file.
     """
     logger.info("Received request for /api/chat/stream")
+
+    content_type = req.headers.get("content-type", "")
+    messages_data = []
+    debug = False
+    deep_thinking_mode = False
+    search_before_planning = False
+
     try:
-        # 1. 解析从表单传来的 messages JSON 字符串
-        try:
-            messages_data = json.loads(messages)
-        except json.JSONDecodeError:
-            logger.error(f"Failed to parse messages JSON: {messages}")
-            raise HTTPException(status_code=400, detail="Invalid JSON format for messages")
+        # 场景一：处理 application/json 请求
+        if "application/json" in content_type:
+            logger.info("Processing JSON request")
+            json_body = await req.json()
+            # 使用 Pydantic 模型进行验证和解析
+            chat_req = ChatRequest(**json_body)
+            messages_data = [msg.dict() for msg in chat_req.messages]
+            debug = chat_req.debug
+            deep_thinking_mode = chat_req.deep_thinking_mode
+            search_before_planning = chat_req.search_before_planning
 
-        # 2. 如果有图片文件，处理并更新消息内容
-        if image:
-            logger.info(f"Processing uploaded image: {image.filename}")
-            # 验证文件类型
-            if not image.content_type or not image.content_type.startswith("image/"):
-                raise HTTPException(status_code=400, detail="Uploaded file is not a valid image")
+        # 场景二：处理 multipart/form-data 请求
+        elif "multipart/form-data" in content_type:
+            logger.info("Processing multipart/form-data request")
+            form_data = await req.form()
 
-            # 读取图片字节并编码为 Base64 Data URL
-            image_bytes = await image.read()
-            base64_image = base64.b64encode(image_bytes).decode('utf-8')
-            mime_type = image.content_type
-            image_url = f"data:{mime_type};base64,{base64_image}"
+            # 1. 解析 messages JSON 字符串
+            messages_str = form_data.get("messages")
+            if not messages_str:
+                raise HTTPException(status_code=400, detail="Missing 'messages' field in form data")
+            try:
+                messages_data = json.loads(messages_str)
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=400, detail="Invalid JSON format for 'messages' field")
 
-            # 找到最后一条用户消息来附加图片
-            last_user_message_index = -1
-            for i in range(len(messages_data) - 1, -1, -1):
-                if messages_data[i].get("role") == "user":
-                    last_user_message_index = i
-                    break
+            # 2. 获取其他参数
+            debug = form_data.get("debug", "false").lower() == "true"
+            deep_thinking_mode = form_data.get("deep_thinking_mode", "false").lower() == "true"
+            search_before_planning = form_data.get("search_before_planning", "false").lower() == "true"
 
-            if last_user_message_index != -1:
-                # 获取原始文本内容
-                original_content = messages_data[last_user_message_index].get("content", "")
+            # 3. 处理图片文件
+            image: Optional[UploadFile] = form_data.get("image")
+            if image:
+                logger.info(f"Processing uploaded image: {image.filename}")
+                if not image.content_type or not image.content_type.startswith("image/"):
+                    raise HTTPException(status_code=400, detail="Uploaded file is not a valid image")
 
-                # 构建新的多模态 content
-                new_content = [
-                    {"type": "text", "text": original_content},
-                    {"type": "image_url", "image_url": {"url": image_url}},
-                ]
-                messages_data[last_user_message_index]["content"] = new_content
-            else:
-                # 如果没有用户消息，就创建一条新的
-                messages_data.append({"role": "user", "content": [
-                    {"type": "text", "text": ""},
-                    {"type": "image_url", "image_url": {"url": image_url}},
-                ]})
+                image_bytes = await image.read()
+                base64_image = base64.b64encode(image_bytes).decode('utf-8')
+                image_url = f"data:{image.content_type};base64,{base64_image}"
 
-        # 3. 准备输入并执行工作流 (这段逻辑对于两种情况是通用的)
+                # 找到最后一条用户消息并附加图片
+                last_user_message_index = next((i for i, msg in reversed(list(enumerate(messages_data))) if msg.get("role") == "user"), -1)
+
+                if last_user_message_index != -1:
+                    original_content = messages_data[last_user_message_index].get("content", "")
+                    # 确保 content 是一个列表
+                    if isinstance(original_content, str):
+                        messages_data[last_user_message_index]["content"] = [{"type": "text", "text": original_content}]
+
+                    # 附加图片内容
+                    messages_data[last_user_message_index]["content"].append(
+                        {"type": "image_url", "image_url": {"url": image_url}}
+                    )
+                else:
+                    # 如果没有用户消息，就创建一条新的
+                    messages_data.append({"role": "user", "content": [{"type": "image_url", "image_url": {"url": image_url}}]})
+
+        else:
+            raise HTTPException(status_code=415, detail=f"Unsupported Content-Type: {content_type}")
+
+        # --- 工作流执行 (通用逻辑) ---
         final_input = {"messages": messages_data}
-
         async def event_generator():
             try:
-                # 注意：这里我们直接使用 messages_data，它已经是正确的格式
-                # 核心修正：将关键字参数从 'messages' 改为 'user_input_messages'
                 async for event in run_agent_workflow(
                         user_input_messages=final_input["messages"],
                         debug=debug,
@@ -154,20 +156,15 @@ async def chat_stream_endpoint(
                     }
             except asyncio.CancelledError:
                 logger.info("Stream processing cancelled")
-                raise
             except Exception as e:
                 logger.error(f"Error in workflow execution: {e}", exc_info=True)
-                # 可以在这里发送一个错误事件给前端
-                yield {
-                    "event": "error",
-                    "data": json.dumps({"error": str(e)})
-                }
+                yield {"event": "error", "data": json.dumps({"error": str(e)})}
 
-        return EventSourceResponse(
-            event_generator(),
-            media_type="text/event-stream",
-            sep="\n",
-        )
+        return EventSourceResponse(event_generator(), media_type="text/event-stream", sep="\n")
+
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        # 避免将内部错误直接暴露给客户端
+        if isinstance(e, HTTPException):
+             raise e
+        raise HTTPException(status_code=500, detail="An internal server error occurred.")

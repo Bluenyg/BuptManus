@@ -1,189 +1,131 @@
+# src/tools/logistics_tool.py
+
 import os
 import json
 import hashlib
 import requests
+import logging
 from typing import Dict, Any
 from .base_tool import BaseTool
+from src.config import KUAIDI100_API_KEY, CUSTOMER_ID # 引用统一的配置
 
+logger = logging.getLogger(__name__)
+
+# --- 保留健壮的快递公司名称映射 ---
+COURIER_MAP = {
+    # 顺丰速运 (SF Express)
+    "shunfeng": "shunfeng", "顺丰": "shunfeng", "顺丰速运": "shunfeng", "sf": "shunfeng", "sf express": "shunfeng",
+    # 中通快递 (ZTO Express)
+    "zhongtong": "zhongtong", "中通": "zhongtong", "zto": "zhongtong",
+    # 圆通速递 (YTO Express)
+    "yuantong": "yuantong", "圆通": "yuantong", "yto": "yuantong",
+    # 申通快递 (STO Express)
+    "shentong": "shentong", "申通": "shentong", "sto": "shentong",
+    # 韵达快递 (Yunda Express)
+    "yunda": "yunda", "韵达": "yunda",
+    # 京东物流
+    "jd": "jd", "jingdong": "jd", "京东": "jd", "京东物流": "jd",
+}
 
 class LogisticsTool(BaseTool):
-    """物流跟踪工具"""
+    """物流跟踪工具，继承自 BaseTool"""
 
     def __init__(self):
-        # 从环境变量或配置文件中获取 API 密钥
-        self.api_key = os.getenv('KUAIDI100_API_KEY', 'your_api_key_here')
-        self.customer_id = os.getenv('CUSTOMER_ID', 'your_customer_id_here')
+        # 初始化时不再直接读取环境变量，而是依赖配置文件
         super().__init__()
 
     def get_name(self) -> str:
-        return "track_logistics"
+        return "logistics_tracking"
 
     def get_description(self) -> str:
-        return "跟踪物流信息，支持多家快递公司。需要提供快递单号、快递公司和手机号码。"
+        return "查询包裹的实时物流信息。你需要提供快递单号(tracking_number)、快递公司(courier_company)和收/寄件人手机号(phone_number)。"
 
     def get_input_schema(self) -> Dict[str, Any]:
+        """
+        定义工具的输入参数。这里的 'properties' 键名需要与 execute 方法中从 'arguments' 字典里取的键名一致。
+        """
         return {
             "type": "object",
             "properties": {
-                "tracking_number": {
-                    "type": "string",
-                    "description": "快递单号"
-                },
-                "courier_company": {
-                    "type": "string",
-                    "description": "快递公司名称，如：顺丰、中通、圆通、申通、韵达等"
-                },
-                "phone_number": {
-                    "type": "string",
-                    "description": "收件人或寄件人手机号码后四位"
-                }
+                "tracking_number": {"type": "string", "description": "要查询的快递包裹单号。"},
+                "courier_company": {"type": "string", "description": "快递公司名称，例如：顺丰, 中通, 圆通, 申通, 韵达等,但注意要全部转为小写字母，例如：shunfeng，zhongtong，yunda，yuantong，yuantong等"},
+                "phone_number": {"type": "string", "description": "收件人或寄件人的手机号码，用于验证（通常是后四位）。"}
             },
-            "required": ["tracking_number", "courier_company", "phone_number"]
+            "required": ["tracking_number", "courier_company"] # 手机号通常是可选的
         }
+
+    def _get_courier_code(self, human_readable_name: str) -> str:
+        """辅助函数：将用户易读的公司名转为API代码。"""
+        if not human_readable_name:
+            return None
+        normalized_name = str(human_readable_name).lower().strip()
+        return COURIER_MAP.get(normalized_name)
 
     async def execute(self, arguments: Dict[str, Any]) -> str:
-        """执行物流跟踪"""
+        """
+        执行物流跟踪。
+        此方法签名保持不变，以兼容您现有的框架。
+        内部逻辑已更新为新版API调用方式。
+        """
+        # --- 0. 验证和提取参数 ---
         try:
-            # 验证必需参数
-            self.validate_arguments(arguments, ["tracking_number", "courier_company", "phone_number"])
-
+            self.validate_arguments(arguments, self.get_input_schema()["required"])
             tracking_number = arguments["tracking_number"]
             courier_company = arguments["courier_company"]
-            phone_number = arguments["phone_number"]
+            phone_number = arguments.get("phone_number", "") # phone_number 作为可选参数
+        except ValueError as e:
+            return f"参数错误: {e}"
 
-            # 将快递公司名称转换为代码
-            com_code = self._get_courier_code(courier_company)
-            if not com_code:
-                return f"不支持的快递公司: {courier_company}"
+        # --- 1. 获取 API 凭证 ---
+        api_key = KUAIDI100_API_KEY
+        customer_id = CUSTOMER_ID
+        if not api_key or not customer_id:
+            logger.error("未配置快递100的API凭证。")
+            return "错误: 必须配置 KUAIDI100_API_KEY 和 CUSTOMER_ID。"
 
-            # 构造请求参数
-            param = {
-                "com": com_code,
-                "num": tracking_number,
-                "phone": phone_number
-            }
+        # --- 2. 转换快递公司名称为API代码 ---
+        com_code = self._get_courier_code(courier_company)
+        if not com_code:
+            logger.warning(f"无法映射快递公司 '{courier_company}' 到有效的API代码。")
+            return f"错误: 不支持或未知的快递公司: '{courier_company}'。"
+        logger.info(f"映射 '{courier_company}' 到 API 代码: '{com_code}'")
 
-            # 如果没有配置真实的 API 密钥，返回模拟数据
-            if self.api_key == 'your_api_key_here' or not self.api_key:
-                return self._get_mock_result(tracking_number, courier_company, phone_number)
+        # --- 3. 构造请求参数 (采用新版格式) ---
+        url = 'https://poll.kuaidi100.com/poll/query.do'
+        param = {
+            'com': com_code,
+            'num': tracking_number,
+            'phone': phone_number,
+            'resultv2': '1',
+            'show': '0',
+            'order': 'desc'
+        }
+        param_str = json.dumps(param)
 
-            # 生成签名
-            param_json = json.dumps(param, separators=(',', ':'))
-            sign_str = f"{param_json}{self.api_key}{self.customer_id}"
-            sign = hashlib.md5(sign_str.encode('utf-8')).hexdigest().upper()
+        # --- 4. 生成签名 ---
+        temp_sign = param_str + api_key + customer_id
+        md = hashlib.md5()
+        md.update(temp_sign.encode())
+        sign = md.hexdigest().upper()
 
-            # 构造请求数据
-            data = {
-                "customer": self.customer_id,
-                "sign": sign,
-                "param": param_json
-            }
+        request_data = {
+            'customer': customer_id,
+            'param': param_str,
+            'sign': sign
+        }
 
-            # 发送请求
-            response = requests.post(
-                "https://poll.kuaidi100.com/poll/query.do",
-                data=data,
-                timeout=10
-            )
-
-            if response.status_code == 200:
-                result = response.json()
-                if result.get("message") == "ok":
-                    return self._format_tracking_result(result)
-                else:
-                    return f"查询失败: {result.get('message', '未知错误')}"
-            else:
-                return f"请求失败，状态码: {response.status_code}"
-
+        # --- 5. 发送请求 ---
+        logger.info(f"正在为运单号: {tracking_number} 发送请求")
+        try:
+            # 在异步函数中使用同步的requests，通常不推荐，但为了保持逻辑一致性暂时保留
+            # 生产环境建议替换为 httpx.AsyncClient
+            response = requests.post(url, data=request_data, timeout=10)
+            response.raise_for_status()
+            logger.info(f"成功接收到 {tracking_number} 的响应")
+            return response.text
+        except requests.exceptions.RequestException as e:
+            logger.error(f"为 {tracking_number} 请求API时失败: {e}", exc_info=True)
+            return f"API 请求期间出错: {e}"
         except Exception as e:
-            return f"物流查询出错: {str(e)}"
-
-    def _get_courier_code(self, courier_name: str) -> str:
-        """将快递公司名称转换为代码"""
-        courier_map = {
-            "顺丰": "shunfeng",
-            "圆通": "yuantong",
-            "中通": "zhongtong",
-            "申通": "shentong",
-            "韵达": "yunda",
-            "百世": "huitongkuaidi",
-            "天天": "tiantian",
-            "京东": "jd",
-            "德邦": "debangwuliu",
-            "邮政": "ems",
-            "EMS": "ems"
-        }
-
-        # 精确匹配
-        if courier_name in courier_map:
-            return courier_map[courier_name]
-
-        # 模糊匹配
-        for name, code in courier_map.items():
-            if name in courier_name or courier_name in name:
-                return code
-
-        return ""
-
-    def _get_mock_result(self, tracking_number: str, courier_company: str, phone_number: str) -> str:
-        """返回模拟的物流查询结果"""
-        return f"""
-📦 物流查询结果
-
-快递公司: {courier_company}
-快递单号: {tracking_number}
-手机号码: {phone_number}
-当前状态: 运输中
-
-🚚 物流轨迹:
-1. 2024-01-15 10:30 - 【深圳分拨中心】快件已发出，正在运输途中
-2. 2024-01-15 08:15 - 【深圳分拨中心】快件已到达分拨中心
-3. 2024-01-14 18:20 - 【深圳南山营业点】快件已揽收
-
-注意: 这是模拟数据，实际使用需要配置真实的快递100 API密钥。
-要获取真实数据，请：
-1. 注册快递100账号 (https://www.kuaidi100.com)
-2. 获取API密钥和客户ID
-3. 设置环境变量 KUAIDI100_API_KEY 和 CUSTOMER_ID
-"""
-
-    def _format_tracking_result(self, result: Dict[str, Any]) -> str:
-        """格式化跟踪结果"""
-        data = result.get("data", {})
-
-        # 基本信息
-        output = f"📦 物流查询结果\n\n"
-        output += f"快递公司: {data.get('com', 'N/A')}\n"
-        output += f"快递单号: {data.get('nu', 'N/A')}\n"
-        output += f"当前状态: {self._get_status_desc(data.get('state', ''))}\n"
-        output += f"是否签收: {'是' if data.get('ischeck') == '1' else '否'}\n\n"
-
-        # 物流轨迹
-        traces = data.get("data", [])
-        if traces:
-            output += "🚚 物流轨迹:\n"
-            for i, trace in enumerate(traces):
-                output += f"{i + 1}. {trace.get('time', 'N/A')} - {trace.get('context', 'N/A')}\n"
-        else:
-            output += "暂无物流轨迹信息\n"
-
-        return output
-
-    def _get_status_desc(self, state: str) -> str:
-        """获取状态描述"""
-        status_map = {
-            "0": "在途",
-            "1": "揽收",
-            "2": "疑难",
-            "3": "已签收",
-            "4": "退签",
-            "5": "派件",
-            "6": "退回",
-            "7": "转单",
-            "10": "待清关",
-            "11": "清关中",
-            "12": "已清关",
-            "13": "清关异常",
-            "14": "收件人拒签"
-        }
-        return status_map.get(state, "未知状态")
+            logger.error(f"物流查询时发生未知错误: {e}", exc_info=True)
+            return f"查询出错: {e}"

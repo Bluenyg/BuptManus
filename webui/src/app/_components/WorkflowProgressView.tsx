@@ -27,7 +27,7 @@ export function WorkflowProgressView({
     return workflow.steps.find((step) => step.agentName === "reporter");
   }, [workflow]);
   return (
-    <div className="flex flex-col gap-4">
+    <div className="p-4 bg-white text-gray-900 dark:bg-gray-100 dark:text-black rounded-md shadow-md">
       <div className={cn("flex overflow-hidden rounded-2xl border", className)}>
         <aside className="flex w-[220px] flex-shrink-0 flex-col border-r bg-[rgba(0,0,0,0.02)]">
           <div className="flex-shrink-0 px-4 py-4 font-medium">Flow</div>

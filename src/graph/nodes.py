@@ -6,7 +6,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 from langgraph.graph import END
 
-from src.agents import research_agent, coder_agent, browser_agent, life_tools_agent
+from src.agents import research_agent, coder_agent, browser_agent, get_life_tools_agent
 from src.agents.llm import get_llm_by_type
 from src.config import TEAM_MEMBERS
 from src.config.agents import AGENT_LLM_MAP
@@ -260,19 +260,38 @@ def reporter_node(state: State) -> Command[Literal["supervisor"]]:
     )
 
 
+# 在 life_tools_node 中添加调试
+# src/graph/nodes.py 中的 life_tools_node 函数
 
 def life_tools_node(state: State) -> Command[Literal["supervisor"]]:
     """Node for the life tools agent that handles daily life tasks."""
     logger.info("Life tools agent starting task")
+
+    # 直接获取工具列表进行调试
+    from src.tools.langchain_wrappers import get_langchain_tools
+    available_tools = get_langchain_tools()
+    logger.info(f"Available MCP tools: {[tool.name for tool in available_tools]}")
+
+    life_tools_agent = get_life_tools_agent()
+
+    # 修改调试信息 - create_react_agent 返回的是图，不是简单的agent
+    logger.info(f"Life tools agent type: {type(life_tools_agent)}")
 
     try:
         # 调用生活工具 agent
         result = life_tools_agent.invoke(state)
         logger.info("Life tools agent completed task")
 
-        logger.debug(f"Life tools agent execution result (full state): \n{result}")
+        # 检查结果
+        if result.get("messages"):
+            last_msg = result["messages"][-1]
+            logger.info(f"Last message type: {type(last_msg)}")
+            logger.info(f"Last message content: {last_msg.content}")
 
-        # 提取最终答案
+            # 检查是否有工具调用
+            if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
+                logger.info(f"Tool calls found: {last_msg.tool_calls}")
+
         response_content = result["messages"][-1].content
 
     except Exception as e:
@@ -290,4 +309,5 @@ def life_tools_node(state: State) -> Command[Literal["supervisor"]]:
         },
         goto="supervisor",
     )
+
 

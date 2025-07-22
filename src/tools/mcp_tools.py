@@ -181,7 +181,7 @@ _mcp_tools_instance = None
 _instance_lock = threading.Lock()
 
 
-def get_mcp_tools_sync():
+def get_mcp_tools_sync() -> MCPTools:
     """获取全局 MCP 工具实例（单例模式）"""
     global _mcp_tools_instance
 
@@ -208,7 +208,8 @@ def get_mcp_tools_sync():
 
 async def call_mcp_tool_async(tool_name: str, arguments: Dict[str, Any]) -> str:
     """异步调用 MCP 工具"""
-    mcp_tools = get_mcp_tools_instance()
+    # [MODIFIED] 修改了这里，确保调用 get_mcp_tools_sync() 获取实例
+    mcp_tools = get_mcp_tools_sync()
 
     # 如果未初始化，尝试连接
     if not mcp_tools.is_initialized:
@@ -220,43 +221,51 @@ async def call_mcp_tool_async(tool_name: str, arguments: Dict[str, Any]) -> str:
     return await mcp_tools.call_mcp_tool(tool_name, arguments)
 
 
+# [MODIFIED] START: 完全替换旧的 call_mcp_tool_sync 函数
 def call_mcp_tool_sync(tool_name: str, arguments: Dict[str, Any]) -> str:
-    """同步调用 MCP 工具"""
+    """同步调用 MCP 工具（修正版）"""
     try:
-        # 检查是否在事件循环中
-        try:
-            loop = asyncio.get_running_loop()
-            # 在事件循环中，使用 run_in_executor
-            import concurrent.futures
+        # 检查当前线程中是否有正在运行的事件循环
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # 如果没有事件循环，这是最简单的情况：
+        # 直接使用 asyncio.run() 来启动并运行 async 函数
+        logger.debug("No running event loop, using asyncio.run()")
+        return asyncio.run(call_mcp_tool_async(tool_name, arguments))
 
-            def run_async():
-                return asyncio.run(call_mcp_tool_async(tool_name, arguments))
+    # 如果代码执行到这里，说明事件循环已经存在
+    if loop.is_running():
+        # 如果事件循环正在运行，我们不能阻塞它。
+        # 必须使用 run_coroutine_threadsafe 将 async 函数提交到该循环，
+        # 然后等待结果。这是从同步代码与正在运行的异步代码交互的正确方法。
+        logger.debug("Event loop is running, using run_coroutine_threadsafe()")
+        future = asyncio.run_coroutine_threadsafe(
+            call_mcp_tool_async(tool_name, arguments),
+            loop
+        )
+        # 设置超时等待结果
+        return future.result(timeout=30)
+    else:
+        # 如果循环存在但已停止，我们可以安全地使用它来运行我们的函数
+        logger.debug("Event loop exists but is not running, using loop.run_until_complete()")
+        return loop.run_until_complete(call_mcp_tool_async(tool_name, arguments))
+# [MODIFIED] END: 替换结束
 
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(run_async)
-                return future.result(timeout=30)
 
-        except RuntimeError:
-            # 没有运行的事件循环，可以直接运行
-            return asyncio.run(call_mcp_tool_async(tool_name, arguments))
-
-    except Exception as e:
-        logger.error(f"Error in call_mcp_tool_sync: {e}")
-        return f"Error: {str(e)}"
-
-
+# [MODIFIED] START: 修正了下面所有兼容性函数的逻辑，以消除循环调用
 def get_available_mcp_tools() -> List[Dict[str, Any]]:
     """获取可用的 MCP 工具列表"""
-    mcp_tools = get_mcp_tools_instance()
-    return mcp_tools.get_available_tools()
+    mcp_tools_instance = get_mcp_tools_sync()
+    return mcp_tools_instance.get_available_tools()
 
 
-# 为了兼容性，保留一些旧的函数名
-def get_mcp_tools() -> List[Dict[str, Any]]:
-    """获取 MCP 工具列表（兼容性函数）"""
-    return get_available_mcp_tools()
+def get_mcp_tools() -> MCPTools:
+    """获取 MCP 工具实例（兼容性函数）"""
+    # 这个函数现在是 get_mcp_tools_sync 的一个明确别名，用于返回实例
+    return get_mcp_tools_sync()
 
 
 def call_mcp_tool(tool_name: str, arguments: Dict[str, Any]) -> str:
     """调用 MCP 工具（兼容性函数）"""
     return call_mcp_tool_sync(tool_name, arguments)
+# [MODIFIED] END: 修正结束
