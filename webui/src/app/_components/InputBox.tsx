@@ -80,6 +80,7 @@ export function InputBox({
     [responding, imeStatus, handleSendMessage],
   );
 
+
   return (
     <div className={cn(className)}>
       <div className="w-full">
@@ -105,11 +106,11 @@ export function InputBox({
       {/* ✅ 选中文件展示 */}
       {selectedFile && (
         <div className="text-sm text-gray-500 dark:text-gray-300 px-4 pb-1 truncate flex items-center justify-between">
-          📎 {selectedFile.name} ({Math.round(selectedFile.size / 1024)} KB)
+          Your uploaded {selectedFile.name} ({Math.round(selectedFile.size / 1024)} KB)
           <button
             onClick={onClearFile}
             className="ml-2 text-red-400 hover:text-red-600"
-            title="移除"
+            title="remove"
           >
             ×
           </button>
@@ -156,7 +157,7 @@ export function InputBox({
             type="button"
             onClick={onUploadClick}
             className="h-10 w-10 rounded-full bg-gray-300 dark:bg-gray-700 text-black dark:text-white hover:bg-gray-400 dark:hover:bg-gray-600 transition"
-            title="上传图片"
+            title="upload picture"
           >
             +
           </button>

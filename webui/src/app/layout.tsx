@@ -7,9 +7,9 @@ import DarkModeToggle from './_components/DarkModeToggle';
 import LanguageToggle from './_components/LanguageToggle';
 
 export const metadata: Metadata = {
-  title: "LangManus",
+  title: "BuptManus",
   description:
-    "A community-driven AI automation framework that builds upon the incredible work of the open source community.",
+    "This is a universal super AI assistant that can help you with anything.",
   icons: [{ rel: "icon", url: "/favicon.ico" }],
 };
 

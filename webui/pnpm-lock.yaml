@@ -8,6 +8,9 @@ dependencies:
   '@ant-design/icons':
     specifier: ^5.6.1
     version: 5.6.1(react-dom@18.3.1)(react@18.3.1)
+  '@heroicons/react':
+    specifier: ^2.2.0
+    version: 2.2.0(react@18.3.1)
   '@t3-oss/env-nextjs':
     specifier: ^0.10.1
     version: 0.10.1(typescript@5.8.3)(zod@3.25.76)
@@ -228,6 +231,14 @@ packages:
 
   /@gilbarbara/deep-equal@0.3.1:
     resolution: {integrity: sha512-I7xWjLs2YSVMc5gGx1Z3ZG1lgFpITPndpi8Ku55GeEIKpACCPQNS/OTqQbxgTCfq0Ncvcc+CrFov96itVh6Qvw==}
+    dev: false
+
+  /@heroicons/react@2.2.0(react@18.3.1):
+    resolution: {integrity: sha512-LMcepvRaS9LYHJGsF0zzmgKCUim/X3N/DQKc4jepAXJ7l8QxJ1PmxJzqplF2Z3FE4PqBAIGyJAQ/w4B5dsqbtQ==}
+    peerDependencies:
+      react: '>= 16 || ^19.0.0-rc'
+    dependencies:
+      react: 18.3.1
     dev: false
 
   /@humanwhocodes/config-array@0.13.0:

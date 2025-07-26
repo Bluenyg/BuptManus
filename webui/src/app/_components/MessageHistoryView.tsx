@@ -51,7 +51,7 @@ function MessageView({ message }: { message: Message }) {
           {/* 显示图片 */}
           <img
             src={message.content.image}
-            alt="用户上传图像"
+            alt="Uploading images by users"
             className="max-w-xs rounded-lg shadow-md border"
           />
         </div>

@@ -4,13 +4,16 @@ import { nanoid } from 'nanoid';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { sendMessage, useStore } from '~/core/store';
+import { fetchSessions, fetchMessages, createSession } from '~/core/api/sessions';
+import { useSessionStore } from '~/core/store/session';
 import { cn } from '~/core/utils';
 
 import { AppHeader } from './_components/AppHeader';
 import { InputBox } from './_components/InputBox';
 import { MessageHistoryView } from './_components/MessageHistoryView';
-import ParticlesBackground from './_components/ParticlesBackground';
+import ParticleBgBackground from './_components/ParticlesBackground';
 import { UserGuide } from './_components/UserGuide';
+import ChatHistoryModal from './_components/ChatHistoryModal';
 
 export default function HomePage() {
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -20,6 +23,8 @@ export default function HomePage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const { sessions, currentSessionId, setSessions, setCurrentSessionId } = useSessionStore();
+
   const [particleColor, setParticleColor] = useState<string[]>(() => {
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('langmanus.particleColor');
@@ -27,8 +32,9 @@ export default function HomePage() {
     }
     return ['#ffcc00'];
   });
-
   const [showColorPanel, setShowColorPanel] = useState(false);
+
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -54,54 +60,53 @@ export default function HomePage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // 文件: webui/src/app/page.tsx
+  const handleSendMessage = useCallback(
+    async (
+      text: string,
+      config: { deepThinkingMode: boolean; searchBeforePlanning: boolean }
+    ) => {
+      let imageBase64: string | null = null;
 
-const handleSendMessage = useCallback(
-  async (
-    text: string, // 'content' 参数现在代表输入的文本
-    config: { deepThinkingMode: boolean; searchBeforePlanning: boolean }
-  ) => {
-    let imageBase64: string | null = null;
+      if (selectedFile) {
+        imageBase64 = await new Promise<string | null>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(selectedFile);
+        });
+        handleClearFile();
+      }
 
-    if (selectedFile) {
-      imageBase64 = await new Promise<string | null>((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = () => resolve(null);
-        reader.readAsDataURL(selectedFile);
-      });
-      handleClearFile();
-    }
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
 
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
+      const messageToSend = imageBase64
+        ? {
+            id: nanoid(),
+            role: 'user' as const,
+            type: 'multimodal' as const,
+            content: { text: text, image: imageBase64 },
+          }
+        : {
+            id: nanoid(),
+            role: 'user' as const,
+            type: 'text' as const,
+            content: text,
+          };
 
-    // --- 这是关键修改 ---
-    const messageToSend = imageBase64
-      ? {
-          id: nanoid(),
-          role: 'user' as const,
-          type: 'multimodal' as const,
-          content: {
-            text: text,
-            image: imageBase64,
-          },
-        }
-      : {
-          id: nanoid(),
-          role: 'user' as const,
-          type: 'text' as const,
-          content: text,
-        };
+      // 🔥 确保使用当前会话ID，不要改变
+      console.log('📤 Sending message to session:', currentSessionId);
 
-    await sendMessage(messageToSend, config, { abortSignal: abortController.signal });
+      await sendMessage(
+        messageToSend,
+        { ...config, sessionId: currentSessionId! },
+        { abortSignal: abortController.signal }
+      );
 
-    abortControllerRef.current = null;
-  },
-  [selectedFile]
-);
-
-
+      abortControllerRef.current = null;
+    },
+    [selectedFile, currentSessionId]
+  );
 
   const chatScrollAnchorRef = useRef<HTMLDivElement>(null);
 
@@ -111,12 +116,86 @@ const handleSendMessage = useCallback(
     }
   }, [messages]);
 
+  useEffect(() => {
+    async function init() {
+      // 从URL中获取session ID
+      const urlParams = new URLSearchParams(window.location.search);
+      const sessionIdFromUrl = urlParams.get('session');
+
+      const sessionList = await fetchSessions();
+      setSessions(sessionList);
+
+      if (sessionIdFromUrl) {
+        // 如果URL中有session ID，先验证该session是否存在
+        const sessionExists = sessionList.find(s => s.id === sessionIdFromUrl);
+        if (sessionExists) {
+          setCurrentSessionId(sessionIdFromUrl);
+          const messages = await fetchMessages(sessionIdFromUrl);
+          useStore.setState({ messages });
+          console.log('🔄 Loaded session from URL:', sessionIdFromUrl);
+          return;
+        } else {
+          // 如果session不存在，清除URL参数
+          window.history.replaceState({}, '', '/');
+        }
+      }
+
+      // 如果没有URL参数或session不存在，创建新session
+      if (sessionList.length > 0) {
+        const firstId = sessionList[0].id;
+        setCurrentSessionId(firstId);
+        const messages = await fetchMessages(firstId);
+        useStore.setState({ messages });
+        console.log('🔄 Loaded first session:', firstId);
+      } else {
+        const newSession = await createSession();
+        setCurrentSessionId(newSession.id);
+        console.log('🆕 Created new session:', newSession.id);
+      }
+    }
+    init();
+  }, [setSessions, setCurrentSessionId]);
+
+  const handleNewChat = async () => {
+    const session = await createSession();
+    setCurrentSessionId(session.id);
+    useStore.setState({ messages: [] });
+    // 🔥 修复：不要刷新页面，直接更新URL
+    window.history.pushState({}, '', `/?session=${session.id}`);
+    console.log('🆕 Created new chat session:', session.id);
+  };
+
+  // 🔥 新增：处理历史记录选择的函数
+  const handleHistorySelect = async (sessionId: string) => {
+    console.log('📜 Switching to session:', sessionId);
+
+    try {
+      // 1. 设置当前会话ID
+      setCurrentSessionId(sessionId);
+
+      // 2. 加载该会话的消息
+      const messages = await fetchMessages(sessionId);
+      useStore.setState({ messages });
+
+      // 3. 更新URL但不刷新页面
+      window.history.pushState({}, '', `/?session=${sessionId}`);
+
+      // 4. 关闭历史记录模态框
+      setShowHistoryModal(false);
+
+      console.log('✅ Successfully switched to session:', sessionId, 'Messages:', messages.length);
+    } catch (error) {
+      console.error('❌ Error switching to session:', error);
+      alert('切换会话失败，请重试');
+    }
+  };
+
   return (
     <div className="relative w-full min-h-screen flex flex-col items-center justify-center bg-transparent">
-      <ParticlesBackground color={particleColor} />
+      <ParticleBgBackground color={particleColor} />
       <UserGuide />
 
-      {/* 🎨 粒子颜色按钮 + 控制面板 */}
+      {/* 颜色调色板按钮 */}
       <div className="fixed top-4 left-4 z-50">
         <button
           onClick={() => setShowColorPanel(!showColorPanel)}
@@ -161,11 +240,16 @@ const handleSendMessage = useCallback(
       </div>
 
       <div className="relative z-10 flex min-h-screen min-w-page flex-col items-center backdrop-blur-sm bg-white/70 dark:bg-black/70">
-        <header className="fixed left-0 right-0 top-0 flex h-16 w-full items-center px-4">
+        <header className="fixed left-0 right-0 top-0 flex h-16 w-full items-center px-4 z-20">
           <AppHeader />
         </header>
 
-        <main className="mb-48 mt-16 px-4">
+        {/* 🔥 显示当前会话信息 */}
+        <div className="fixed top-16 left-4 z-20 bg-black/20 text-white px-3 py-1 rounded text-sm">
+          Session: {currentSessionId?.slice(-8) || 'None'}
+        </div>
+
+        <main className="mb-48 mt-16 px-4 w-full max-w-page">
           <MessageHistoryView className="w-page" messages={messages} loading={responding} />
           <div ref={chatScrollAnchorRef} className="h-0" />
         </main>
@@ -176,14 +260,32 @@ const handleSendMessage = useCallback(
             messages.length === 0 ? 'w-[640px] translate-y-[-34vh]' : 'w-page'
           )}
         >
+
           {messages.length === 0 && (
             <div className="flex w-[640px] translate-y-[-32px] flex-col">
               <h3 className="mb-2 text-center text-3xl font-medium">Hello! What can I do for you?</h3>
               <div className="px-4 text-center text-lg text-gray-500 dark:text-gray-300">
-                I am your intelligent agent, I can help you do anything. —— From BUPT
+                I am your intelligent agent, I can help you do anything.
+                <br /> —— From BuptManus
               </div>
             </div>
           )}
+
+          {/* 新建对话和历史记录按钮 */}
+          <div className="flex justify-center gap-4 mb-4 px-4">
+            <button
+              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+              onClick={handleNewChat}
+            >
+              NewChat
+            </button>
+            <button
+              className="bg-gray-200 text-black px-4 py-2 rounded hover:bg-gray-300"
+              onClick={() => setShowHistoryModal(true)}
+            >
+              HistoryChat
+            </button>
+          </div>
 
           <div className="flex flex-col items-center w-full max-w-page mb-2 px-4">
             <input
@@ -213,6 +315,14 @@ const handleSendMessage = useCallback(
           <div className="absolute bottom-[-32px] h-8 w-page backdrop-blur-sm" />
         </footer>
       </div>
+
+      {/* 🔥 修复：传递回调函数给历史记录模态框 */}
+      {showHistoryModal && (
+        <ChatHistoryModal
+          onClose={() => setShowHistoryModal(false)}
+          onSelectSession={handleHistorySelect}
+        />
+      )}
     </div>
   );
 }

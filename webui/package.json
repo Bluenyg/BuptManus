@@ -1,5 +1,5 @@
 {
-  "name": "langmanus-web",
+  "name": "BuptManus-web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@ant-design/icons": "^5.6.1",
+    "@heroicons/react": "^2.2.0",
     "@t3-oss/env-nextjs": "^0.10.1",
     "best-effort-json-parser": "^1.1.3",
     "classnames": "^2.5.1",

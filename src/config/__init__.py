@@ -14,7 +14,8 @@ from .env import (
     # Other configurations
     CHROME_INSTANCE_PATH,
     KUAIDI100_API_KEY,
-    CUSTOMER_ID
+    CUSTOMER_ID,
+DATABASE_URL
 )
 from .tools import TAVILY_MAX_RESULTS
 
@@ -39,5 +40,6 @@ __all__ = [
     "TAVILY_MAX_RESULTS",
     "CHROME_INSTANCE_PATH",
     "KUAIDI100_API_KEY",
-    "CUSTOMER_ID"
+    "CUSTOMER_ID",
+    "DATABASE_URL"
 ]
