@@ -1,8 +1,7 @@
 import { create } from "zustand";
 
 import { type ChatEvent, chatStream } from "../api";
-//import { chatStream as mockChatStream } from "../api/mock"; //这是原本的，替换为了下面这个
-import { mockChatStream } from "../api/mock"; // 为了实现假回复 直接导入 mockChatStream
+import { mockChatStream } from "../api/mock";
 import {
   type WorkflowMessage,
   type Message,
@@ -50,18 +49,44 @@ export function updateMessage(message: Partial<Message> & { id: string }) {
   });
 }
 
+// 🔥 关键修改：sendMessage 函数接收 sessionId 参数
+// 🔥 关键修改：sendMessage 函数正确处理 sessionId
 export async function sendMessage(
-  message:Message,
-  params: { deepThinkingMode: boolean; searchBeforePlanning: boolean },
+  message: Message,
+  params: {
+    deepThinkingMode: boolean;
+    searchBeforePlanning: boolean;
+    sessionId: string; // 🔥 sessionId 参数
+  },
   options: { abortSignal?: AbortSignal } = {},
 ) {
+  console.log('🔥 sendMessage called with sessionId:', params.sessionId);
+
+  // 🔥 验证 sessionId
+  if (!params.sessionId) {
+    console.error('❌ sessionId is required for sendMessage');
+    throw new Error('sessionId is required');
+  }
+
   addMessage(message);
+
   let stream: AsyncIterable<ChatEvent>;
   if (window.location.search.includes("mock")) {
     stream = mockChatStream(message);
   } else {
-    stream = chatStream(message, useStore.getState().state, params, options);
+    // 🔥 关键：将 sessionId 作为 conversationId 传递给 chatStream
+    stream = chatStream(
+      message,
+      useStore.getState().state,
+      {
+        deepThinkingMode: params.deepThinkingMode,
+        searchBeforePlanning: params.searchBeforePlanning,
+        conversationId: params.sessionId, // 🔥 传递会话ID
+      },
+      options
+    );
   }
+
   setResponding(true);
 
   let textMessage: TextMessage | null = null;

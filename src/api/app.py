@@ -57,10 +57,12 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
-    conversationId: Optional[str] = None
+    conversationId: Optional[str] = None  # 🔥 确保字段名一致
+    conversation_id: Optional[str] = None  # 🔥 兼容性字段
     debug: bool = False
     deep_thinking_mode: bool = False
     search_before_planning: bool = False
+
 
 # 响应模型
 class SessionResponse(BaseModel):
@@ -147,8 +149,13 @@ async def chat_stream_endpoint(req: Request, db: Session = Depends(get_db)):
             json_body = await req.json()
             chat_req = ChatRequest(**json_body)
 
-            # 获取会话ID
+            # 🔥 关键修复：正确获取会话ID
             conversation_id = chat_req.conversationId
+            # 🔥 新增：也检查 conversation_id 字段（兼容前端的不同字段名）
+            if not conversation_id:
+                conversation_id = json_body.get('conversation_id')
+
+            logger.info(f"🔥 Received conversation_id from frontend: {conversation_id}")
 
             # 处理多模态内容
             messages_data = []
@@ -183,12 +190,18 @@ async def chat_stream_endpoint(req: Request, db: Session = Depends(get_db)):
             except json.JSONDecodeError:
                 raise HTTPException(status_code=400, detail="Invalid JSON format for 'messages' field")
 
+            # 🔥 关键修复：正确获取会话ID
             conversation_id = form_data.get("conversationId")
+            if not conversation_id:
+                conversation_id = form_data.get("conversation_id")
+
+            logger.info(f"🔥 Received conversation_id from form: {conversation_id}")
+
             debug = form_data.get("debug", "false").lower() == "true"
             deep_thinking_mode = form_data.get("deep_thinking_mode", "false").lower() == "true"
             search_before_planning = form_data.get("search_before_planning", "false").lower() == "true"
 
-            # 处理图片文件
+            # 处理图片文件（保持原有逻辑）
             image: Optional[UploadFile] = form_data.get("image")
             if image:
                 logger.info(f"Processing uploaded image: {image.filename}")
@@ -217,20 +230,20 @@ async def chat_stream_endpoint(req: Request, db: Session = Depends(get_db)):
         else:
             raise HTTPException(status_code=415, detail=f"Unsupported Content-Type: {content_type}")
 
-        # --- 将这部分代码替换掉原来的逻辑 ---
-
-        # --- 修正的聊天历史处理逻辑 ---
+        # 🔥 关键修复：聊天历史处理逻辑
         user_id = "default_user"
 
         if conversation_id:
-            # BUG修复：直接通过 conversation_id 查询会话，而不是调用 get_sessions
+            logger.info(f"🔥 Using existing conversation_id: {conversation_id}")
+            # 验证会话是否存在
             session = db.query(ChatSession).filter(ChatSession.id == conversation_id).first()
             if not session:
-                # 如果提供了 conversation_id 但找不到，应该报错，而不是创建新的
+                logger.error(f"🔥 Session {conversation_id} not found!")
                 raise HTTPException(status_code=404, detail="Session not found")
-            # 如果找到了会话，conversation_id 保持不变，后续逻辑会使用这个正确的ID
+            logger.info(f"🔥 Found existing session: {session.id} - {session.title}")
         else:
-            # 如果没有提供 conversation_id，则创建新会话
+            logger.info("🔥 No conversation_id provided, creating new session")
+            # 创建新会话
             user_message = messages_data[-1] if messages_data else {"content": "新对话"}
             title = user_message.get("content", "新对话")
             if isinstance(title, list):
@@ -242,11 +255,9 @@ async def chat_stream_endpoint(req: Request, db: Session = Depends(get_db)):
             # 调用服务创建新会话
             session_info = ChatService.create_session(db, user_id, title)
             conversation_id = session_info["id"]  # 获取新会话的ID
+            logger.info(f"🔥 Created new session: {conversation_id}")
 
-        # --- 逻辑处理结束 ---
-
-
-        # 保存用户消息
+        # 🔥 关键修复：保存用户消息时使用正确的会话ID
         if messages_data:
             last_message = messages_data[-1]
             if last_message.get("role") == "user":
@@ -272,7 +283,7 @@ async def chat_stream_endpoint(req: Request, db: Session = Depends(get_db)):
                         debug=debug,
                         deep_thinking_mode=deep_thinking_mode,
                         search_before_planning=search_before_planning,
-                        session_id=conversation_id,
+                        session_id=conversation_id,  # 🔥 确保传递正确的会话ID
                 ):
                     logger.debug(f"📡 Received event: {event.get('event', 'unknown')}")
 
@@ -294,7 +305,7 @@ async def chat_stream_endpoint(req: Request, db: Session = Depends(get_db)):
                         "data": json.dumps(event["data"], ensure_ascii=False),
                     }
 
-                # 工作流完成后保存助手响应
+                # 🔥 关键修复：工作流完成后保存助手响应到正确的会话
                 if assistant_response_parts and conversation_id:
                     full_response = "".join(assistant_response_parts)
                     logger.info(
@@ -303,7 +314,7 @@ async def chat_stream_endpoint(req: Request, db: Session = Depends(get_db)):
                     if full_response.strip():  # 确保不是空内容
                         try:
                             ChatService.save_message(db, conversation_id, "assistant", full_response)
-                            logger.info(f"✅ Successfully saved assistant message to database")
+                            logger.info(f"✅ Successfully saved assistant message to session {conversation_id}")
                         except Exception as save_error:
                             logger.error(f"❌ Failed to save assistant message: {save_error}", exc_info=True)
                     else:

@@ -1,8 +1,6 @@
 import Markdown from "react-markdown";
-
 import { type Message } from "~/core/messaging";
 import { cn } from "~/core/utils";
-
 import { LoadingAnimation } from "./LoadingAnimation";
 import { WorkflowProgressView } from "./WorkflowProgressView";
 
@@ -26,6 +24,8 @@ export function MessageHistoryView({
 }
 
 function MessageView({ message }: { message: Message }) {
+  console.log("🔍 Rendering message:", message);
+
   if (message.type === "text" && message.content) {
     return (
       <MessageBubble role={message.role}>
@@ -43,17 +43,57 @@ function MessageView({ message }: { message: Message }) {
       </MessageBubble>
     );
   } else if (message.type === "multimodal") {
+    // 🔥 关键修复：正确处理多模态消息
     return (
       <MessageBubble role={message.role}>
         <div className="space-y-2">
-          {/* 显示文字 */}
-          <Markdown>{message.content.text}</Markdown>
-          {/* 显示图片 */}
-          <img
-            src={message.content.image}
-            alt="Uploading images by users"
-            className="max-w-xs rounded-lg shadow-md border"
-          />
+          {/* 处理存储格式 [{"type": "text", "text": "..."}, {"type": "image_url", "image_url": {"url": "..."}}] */}
+          {Array.isArray(message.content) ? (
+            // 如果content是数组格式（从数据库加载的格式）
+            message.content.map((item: any, index: number) => {
+              if (item.type === "text" && item.text) {
+                return (
+                  <div key={`text-${index}`}>
+                    <Markdown>{item.text}</Markdown>
+                  </div>
+                );
+              } else if (item.type === "image_url" && item.image_url?.url) {
+                return (
+                  <img
+                    key={`image-${index}`}
+                    src={item.image_url.url}
+                    alt={`User uploaded image ${index + 1}`}
+                    className="max-w-xs rounded-lg shadow-md border"
+                    onError={(e) => {
+                      console.error("Failed to load image:", item.image_url.url);
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                );
+              }
+              return null;
+            })
+          ) : (
+            // 如果content是对象格式（原有的格式）
+            <>
+              {message.content.text && (
+                <div>
+                  <Markdown>{message.content.text}</Markdown>
+                </div>
+              )}
+              {message.content.image && (
+                <img
+                  src={message.content.image}
+                  alt="User uploaded image"
+                  className="max-w-xs rounded-lg shadow-md border"
+                  onError={(e) => {
+                    console.error("Failed to load image:", message.content.image);
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              )}
+            </>
+          )}
         </div>
       </MessageBubble>
     );
@@ -66,7 +106,15 @@ function MessageView({ message }: { message: Message }) {
     );
   }
 
-  return null;
+  // 兜底处理
+  console.warn("Unknown message type or invalid content:", message);
+  return (
+    <MessageBubble role={message.role}>
+      <div className="text-gray-500 italic">
+        [无法显示此消息类型]
+      </div>
+    </MessageBubble>
+  );
 }
 
 function MessageBubble({

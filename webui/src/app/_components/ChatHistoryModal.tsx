@@ -50,14 +50,17 @@ export default function ChatHistoryModal({ onClose, onSelectSession }: ChatHisto
     loadSessions();
   }, [setSessions]);
 
-  // 🔥 修改：处理会话选择
+  // 🔥 修复：正确处理会话切换和消息加载
   const handleOpenSession = async (sessionId: string) => {
     try {
       setIsLoading(true);
       console.log(`🔄 Switching to session: ${sessionId}`);
 
-      // 🔥 调用父组件的处理函数
+      // 调用父组件的选择会话方法
       await onSelectSession(sessionId);
+
+      // 关闭模态框
+      onClose();
 
       console.log(`✅ Successfully switched to session: ${sessionId}`);
 
