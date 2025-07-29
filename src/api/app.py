@@ -217,26 +217,34 @@ async def chat_stream_endpoint(req: Request, db: Session = Depends(get_db)):
         else:
             raise HTTPException(status_code=415, detail=f"Unsupported Content-Type: {content_type}")
 
+        # --- 将这部分代码替换掉原来的逻辑 ---
+
         # --- 修正的聊天历史处理逻辑 ---
         user_id = "default_user"
 
         if conversation_id:
-            session = ChatService.get_sessions(db, conversation_id, user_id)
+            # BUG修复：直接通过 conversation_id 查询会话，而不是调用 get_sessions
+            session = db.query(ChatSession).filter(ChatSession.id == conversation_id).first()
             if not session:
+                # 如果提供了 conversation_id 但找不到，应该报错，而不是创建新的
                 raise HTTPException(status_code=404, detail="Session not found")
-            conversation_id = session["id"]
+            # 如果找到了会话，conversation_id 保持不变，后续逻辑会使用这个正确的ID
         else:
-            # 创建新会话
+            # 如果没有提供 conversation_id，则创建新会话
             user_message = messages_data[-1] if messages_data else {"content": "新对话"}
             title = user_message.get("content", "新对话")
             if isinstance(title, list):
-                # 如果是多模态内容，提取文本部分
+                # 如果是多模态内容，提取文本部分作为标题
                 text_parts = [item.get("text", "") for item in title if item.get("type") == "text"]
                 title = " ".join(text_parts) if text_parts else "新对话"
             title = str(title)[:50]  # 限制标题长度
 
-            session = ChatService.create_session(db, user_id, title)
-            conversation_id = session["id"]
+            # 调用服务创建新会话
+            session_info = ChatService.create_session(db, user_id, title)
+            conversation_id = session_info["id"]  # 获取新会话的ID
+
+        # --- 逻辑处理结束 ---
+
 
         # 保存用户消息
         if messages_data:

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { sendMessage, useStore } from '~/core/store';
 import { fetchSessions, fetchMessages, createSession } from '~/core/api/sessions';
 import { useSessionStore } from '~/core/store/session';
+import { useMessageStore } from '~/core/store/messages';
 import { cn } from '~/core/utils';
 
 import { AppHeader } from './_components/AppHeader';
@@ -23,7 +24,8 @@ export default function HomePage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { sessions, currentSessionId, setSessions, setCurrentSessionId } = useSessionStore();
+  const { sessions, currentSessionId, setSessions, setCurrentSessionId, addSession } = useSessionStore();
+  const { loadMessagesForSession } = useMessageStore();
 
   const [particleColor, setParticleColor] = useState<string[]>(() => {
     if (typeof window !== 'undefined') {
@@ -33,8 +35,8 @@ export default function HomePage() {
     return ['#ffcc00'];
   });
   const [showColorPanel, setShowColorPanel] = useState(false);
-
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -60,11 +62,20 @@ export default function HomePage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  // 🔥 关键修改：确保消息发送到正确的会话
   const handleSendMessage = useCallback(
     async (
       text: string,
       config: { deepThinkingMode: boolean; searchBeforePlanning: boolean }
     ) => {
+      // 🔥 确保有当前会话ID
+      if (!currentSessionId) {
+        console.error('❌ No current session ID, cannot send message');
+        return;
+      }
+
+      console.log('📤 Sending message to session:', currentSessionId, 'Message:', text);
+
       let imageBase64: string | null = null;
 
       if (selectedFile) {
@@ -94,16 +105,24 @@ export default function HomePage() {
             content: text,
           };
 
-      // 🔥 确保使用当前会话ID，不要改变
-      console.log('📤 Sending message to session:', currentSessionId);
+      try {
+        // 🔥 关键：明确传递当前会话ID
+        await sendMessage(
+          messageToSend,
+          {
+            ...config,
+            sessionId: currentSessionId // 🔥 确保传递正确的会话ID
+          },
+          { abortSignal: abortController.signal }
+        );
 
-      await sendMessage(
-        messageToSend,
-        { ...config, sessionId: currentSessionId! },
-        { abortSignal: abortController.signal }
-      );
+        console.log('✅ Message sent successfully to session:', currentSessionId);
 
-      abortControllerRef.current = null;
+      } catch (error) {
+        console.error('❌ Failed to send message:', error);
+      } finally {
+        abortControllerRef.current = null;
+      }
     },
     [selectedFile, currentSessionId]
   );
@@ -116,79 +135,182 @@ export default function HomePage() {
     }
   }, [messages]);
 
+  // 初始化数据
   useEffect(() => {
     async function init() {
-      // 从URL中获取session ID
-      const urlParams = new URLSearchParams(window.location.search);
-      const sessionIdFromUrl = urlParams.get('session');
+      if (isInitialized) return;
 
-      const sessionList = await fetchSessions();
-      setSessions(sessionList);
+      console.log('🔄 Initializing HomePage...');
 
-      if (sessionIdFromUrl) {
-        // 如果URL中有session ID，先验证该session是否存在
-        const sessionExists = sessionList.find(s => s.id === sessionIdFromUrl);
-        if (sessionExists) {
-          setCurrentSessionId(sessionIdFromUrl);
-          const messages = await fetchMessages(sessionIdFromUrl);
-          useStore.setState({ messages });
-          console.log('🔄 Loaded session from URL:', sessionIdFromUrl);
-          return;
-        } else {
-          // 如果session不存在，清除URL参数
-          window.history.replaceState({}, '', '/');
+      try {
+        // 从URL中获取session ID
+        const urlParams = new URLSearchParams(window.location.search);
+        const sessionIdFromUrl = urlParams.get('session');
+
+        // 获取所有会话
+        const sessionList = await fetchSessions();
+        setSessions(sessionList);
+
+        if (sessionIdFromUrl) {
+          // 如果URL中有session ID，先验证该session是否存在
+          const sessionExists = sessionList.find(s => s.id === sessionIdFromUrl);
+          if (sessionExists) {
+            console.log('📜 Loading session from URL:', sessionIdFromUrl);
+            setCurrentSessionId(sessionIdFromUrl);
+
+            // 🔥 关键修复：加载历史消息到正确的store
+            const historyMessages = await fetchMessages(sessionIdFromUrl);
+            console.log('💬 Loaded history messages:', historyMessages);
+
+            // 🔥 将后端消息格式转换为前端格式
+            const formattedMessages = historyMessages.map(msg => ({
+              id: msg.id || nanoid(),
+              role: msg.role as 'user' | 'assistant',
+              type: 'text' as const,
+              content: msg.content,
+              timestamp: msg.timestamp,
+              session_id: sessionIdFromUrl
+            }));
+
+            // 🔥 同时更新store的状态
+            useStore.setState({
+              messages: formattedMessages,
+              state: {
+                messages: formattedMessages.map(msg => ({
+                  role: msg.role,
+                  content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+                }))
+              }
+            });
+
+            setIsInitialized(true);
+            return;
+          } else {
+            // 如果session不存在，清除URL参数
+            console.warn('⚠️ Session not found in URL, clearing...');
+            window.history.replaceState({}, '', '/');
+          }
         }
-      }
 
-      // 如果没有URL参数或session不存在，创建新session
-      if (sessionList.length > 0) {
-        const firstId = sessionList[0].id;
-        setCurrentSessionId(firstId);
-        const messages = await fetchMessages(firstId);
-        useStore.setState({ messages });
-        console.log('🔄 Loaded first session:', firstId);
-      } else {
-        const newSession = await createSession();
-        setCurrentSessionId(newSession.id);
-        console.log('🆕 Created new session:', newSession.id);
+        // 如果没有URL参数或session不存在
+        if (sessionList.length > 0) {
+          const firstSession = sessionList[0];
+          console.log('📜 Loading first session:', firstSession.id);
+          setCurrentSessionId(firstSession.id);
+
+          const historyMessages = await fetchMessages(firstSession.id);
+          console.log('💬 Loaded first session messages:', historyMessages);
+
+          // 🔥 格式化并设置消息
+          const formattedMessages = historyMessages.map(msg => ({
+            id: msg.id || nanoid(),
+            role: msg.role as 'user' | 'assistant',
+            type: 'text' as const,
+            content: msg.content,
+            timestamp: msg.timestamp,
+            session_id: firstSession.id
+          }));
+
+          useStore.setState({
+            messages: formattedMessages,
+            state: {
+              messages: formattedMessages.map(msg => ({
+                role: msg.role,
+                content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+              }))
+            }
+          });
+
+          // 更新URL但不刷新页面
+          window.history.replaceState({}, '', `/?session=${firstSession.id}`);
+        } else {
+          // 创建新会话
+          console.log('🆕 No sessions found, creating new one...');
+          const newSession = await createSession();
+          setCurrentSessionId(newSession.id);
+          addSession(newSession);
+          useStore.setState({ messages: [], state: { messages: [] } });
+          window.history.replaceState({}, '', `/?session=${newSession.id}`);
+        }
+
+        setIsInitialized(true);
+      } catch (error) {
+        console.error('❌ Failed to initialize:', error);
+        setIsInitialized(true);
       }
     }
+
     init();
-  }, [setSessions, setCurrentSessionId]);
+  }, [isInitialized, setSessions, setCurrentSessionId, addSession]);
 
   const handleNewChat = async () => {
-    const session = await createSession();
-    setCurrentSessionId(session.id);
-    useStore.setState({ messages: [] });
-    // 🔥 修复：不要刷新页面，直接更新URL
-    window.history.pushState({}, '', `/?session=${session.id}`);
-    console.log('🆕 Created new chat session:', session.id);
+    console.log('🆕 Creating new chat...');
+    try {
+      const session = await createSession();
+      setCurrentSessionId(session.id);
+      addSession(session);
+      useStore.setState({ messages: [], state: { messages: [] } });
+      // 更新URL但不刷新页面
+      window.history.pushState({}, '', `/?session=${session.id}`);
+      console.log('✅ Created new chat session:', session.id);
+    } catch (error) {
+      console.error('❌ Failed to create new chat:', error);
+    }
   };
 
-  // 🔥 新增：处理历史记录选择的函数
+  // 🔥 修改：处理历史记录选择的函数
   const handleHistorySelect = async (sessionId: string) => {
     console.log('📜 Switching to session:', sessionId);
 
     try {
+      // 🔥 关闭历史记录模态框
+      setShowHistoryModal(false);
+
       // 1. 设置当前会话ID
       setCurrentSessionId(sessionId);
 
       // 2. 加载该会话的消息
-      const messages = await fetchMessages(sessionId);
-      useStore.setState({ messages });
+      const historyMessages = await fetchMessages(sessionId);
+      console.log('💬 Loaded session messages:', historyMessages);
 
-      // 3. 更新URL但不刷新页面
+      // 3. 🔥 格式化消息并更新store
+      const formattedMessages = historyMessages.map(msg => ({
+        id: msg.id || nanoid(),
+        role: msg.role as 'user' | 'assistant',
+        type: 'text' as const,
+        content: msg.content,
+        timestamp: msg.timestamp,
+        session_id: sessionId
+      }));
+
+      useStore.setState({
+        messages: formattedMessages,
+        state: {
+          messages: formattedMessages.map(msg => ({
+            role: msg.role,
+            content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+          }))
+        }
+      });
+
+      // 4. 🔥 重要：更新URL，确保后续操作都在正确的会话中
       window.history.pushState({}, '', `/?session=${sessionId}`);
 
-      // 4. 关闭历史记录模态框
-      setShowHistoryModal(false);
-
-      console.log('✅ Successfully switched to session:', sessionId, 'Messages:', messages.length);
+      console.log('✅ Successfully switched to session:', sessionId, 'Messages:', formattedMessages.length);
     } catch (error) {
       console.error('❌ Error switching to session:', error);
       alert('切换会话失败，请重试');
     }
   };
+
+  // 如果还没初始化完成，显示加载状态
+  if (!isInitialized) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-lg">Loading...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative w-full min-h-screen flex flex-col items-center justify-center bg-transparent">
@@ -244,7 +366,7 @@ export default function HomePage() {
           <AppHeader />
         </header>
 
-        {/* 🔥 显示当前会话信息 */}
+        {/* 显示当前会话信息 */}
         <div className="fixed top-16 left-4 z-20 bg-black/20 text-white px-3 py-1 rounded text-sm">
           Session: {currentSessionId?.slice(-8) || 'None'}
         </div>
@@ -260,7 +382,6 @@ export default function HomePage() {
             messages.length === 0 ? 'w-[640px] translate-y-[-34vh]' : 'w-page'
           )}
         >
-
           {messages.length === 0 && (
             <div className="flex w-[640px] translate-y-[-32px] flex-col">
               <h3 className="mb-2 text-center text-3xl font-medium">Hello! What can I do for you?</h3>
@@ -316,7 +437,7 @@ export default function HomePage() {
         </footer>
       </div>
 
-      {/* 🔥 修复：传递回调函数给历史记录模态框 */}
+      {/* 历史记录模态框 */}
       {showHistoryModal && (
         <ChatHistoryModal
           onClose={() => setShowHistoryModal(false)}

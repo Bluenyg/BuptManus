@@ -12,7 +12,7 @@ interface Session {
 
 interface ChatHistoryModalProps {
   onClose: () => void;
-  onSelectSession: (sessionId: string) => void; // 🔥 新增回调函数
+  onSelectSession: (sessionId: string) => void;
 }
 
 export default function ChatHistoryModal({ onClose, onSelectSession }: ChatHistoryModalProps) {
@@ -50,13 +50,13 @@ export default function ChatHistoryModal({ onClose, onSelectSession }: ChatHisto
     loadSessions();
   }, [setSessions]);
 
-  // 🔥 修复：使用传入的回调函数而不是直接操作
+  // 🔥 修改：处理会话选择
   const handleOpenSession = async (sessionId: string) => {
     try {
       setIsLoading(true);
       console.log(`🔄 Switching to session: ${sessionId}`);
 
-      // 调用父组件传递的回调函数
+      // 🔥 调用父组件的处理函数
       await onSelectSession(sessionId);
 
       console.log(`✅ Successfully switched to session: ${sessionId}`);
@@ -93,7 +93,7 @@ export default function ChatHistoryModal({ onClose, onSelectSession }: ChatHisto
       const responseData = await res.json();
       console.log('Delete response:', responseData);
 
-      // 从会话列表中移除已删除的会话
+      // 更新会话列表
       setSessions((prev) => {
         if (!Array.isArray(prev)) return [];
         const filtered = prev.filter((s) => s.id !== confirmId);
@@ -101,7 +101,7 @@ export default function ChatHistoryModal({ onClose, onSelectSession }: ChatHisto
         return filtered;
       });
 
-      // 如果删除的是当前会话，清空消息并重置会话ID
+      // 如果删除的是当前会话，清空当前会话
       if (currentSessionId === confirmId) {
         setCurrentSessionId(null);
         useStore.setState({ messages: [] });
@@ -189,7 +189,7 @@ export default function ChatHistoryModal({ onClose, onSelectSession }: ChatHisto
           </ul>
         )}
 
-        {/* 删除确认对话框 */}
+        {/* 删除确认弹窗 */}
         {confirmId && (
           <div className="absolute inset-0 bg-black bg-opacity-40 flex items-center justify-center z-10">
             <div className="bg-white dark:bg-gray-700 rounded-lg p-6 shadow-lg max-w-xs text-center">
