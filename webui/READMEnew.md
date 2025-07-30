@@ -1,21 +1,26 @@
-# 🌌 LangManus Web UI
+# 🌌 BuptManus Web UI
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > From Open Source, For Open Intelligence
 
-**The official web UI for [LangManus](https://github.com/langmanus/langmanus)** — a community-driven AI automation framework combining large language models with tool orchestration, image understanding, and more.
+**The official web UI for [BuptManus](https://github.com/Bluenyg/BuptManus)** — a general-purpose AI agent based on a multi-agent architecture, integrating large language models with tool orchestration, image understanding, and more — collaboratively driven by the open community.
 
 ---
 
 ## 🚀 Features
 
-- ✨ **Multimodal input**: Upload images and send text in one go (Base64-encoded inline support)
-- 🌙 **Dark Mode toggle**: Instant light/dark switching with Tailwind `darkMode: 'class'`
-- 🎇 **Particle background**: Beautiful animated background powered by `tsparticles`
-- 🧠 **Deep Thinking & Search Options**: Optional toggles for enhanced LLM behavior
-- ⚡ **Hot-reload dev server** with `pnpm dev`
-- 💅 Built with **Next.js**, **TypeScript**, **Tailwind CSS**
+- ✨ **Interactive & Collapsible Sidebar**: Hover to expand for quick access to your chat history, and it collapses automatically for a clean workspace. It even stays open when you're using the search bar!
+- 🔍 **Instant History Search**: Filter your chat sessions in real-time directly within the sidebar.
+- 🎨 **Customizable UI**: Personalize your experience by changing the animated particle background colors through the in-app settings menu.
+- 🛡️ **Safe & Intuitive Deletion**: Hover-to-reveal delete icons on chat items with an in-place confirmation dialog to prevent accidental deletion.
+- 👋 **Helpful User Guide**: A welcoming, one-time modal guides new users through the core features.
+- 🧠 **Deep Thinking & Search Options**: Optional toggles for enhanced LLM behavior.
+- 🖼️ **Multimodal Input**: Upload images and send text in one go (Base64-encoded inline support).
+- 🌙 **Dark Mode Toggle**: Instant light/dark switching with Tailwind `darkMode: 'class'`.
+- 🎇 **Animated Particle Background**: Beautiful and customizable background powered by `tsparticles`.
+- ⚡ **Hot-reload dev server** with `pnpm dev`.
+- 💅 Built with **Next.js**, **TypeScript**, **Tailwind CSS**, and **Zustand** for state management.
 
 ---
 
@@ -30,16 +35,15 @@
 
 ### 🔧 Prerequisites
 
-- [LangManus Core](https://github.com/langmanus/langmanus)
+- [BuptManus Core](https://github.com/Bluenyg/BuptManus)
 - Node.js `v18+`
 - `pnpm` `v8+`
 
 ### ⚙️ Setup
 
 ```bash
-# Clone the project
-git clone https://github.com/langmanus/langmanus-web.git
-cd langmanus-web
+#
+cd webui
 
 # Create your env file
 cp .env.example .env
@@ -50,7 +54,10 @@ NEXT_PUBLIC_API_URL=http://localhost:3000
 
 ### 📦 Install & Launch
 ```bash
+# Install dependencies
 pnpm install
+
+# Run the project in development mode
 pnpm dev
 ```
 Then visit http://localhost:3000
@@ -73,9 +80,6 @@ From fixing typos to adding full features — you're awesome!
 
 See CONTRIBUTING.md for how to get involved.
 
-### 📄 License
-This project is licensed under the MIT License.
-
 ### 🙏 Acknowledgments
 Huge thanks to the open source community and all contributors.
-LangManus stands on the shoulders of giants. 🦾
+BuptManus stands on the shoulders of giants. 🦾

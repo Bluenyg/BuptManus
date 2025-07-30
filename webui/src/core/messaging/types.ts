@@ -19,9 +19,26 @@ export interface TextMessage extends GenericMessage<"text", string> {}
 export interface WorkflowMessage
   extends GenericMessage<"workflow", { workflow: Workflow }> {}
 
-// 多模态消息（文本 + 图片Base64）新增
-export interface MultimodalMessage
-  extends GenericMessage<"multimodal", { text: string; image: string }> {}
 
 // 扩展联合类型
 export type Message = TextMessage | WorkflowMessage | MultimodalMessage;
+
+export interface MultimodalContent {
+  text?: string;
+  image?: string;
+}
+
+export interface MultimodalContentItem {
+  type: "text" | "image_url";
+  text?: string;
+  image_url?: {
+    url: string;
+  };
+}
+
+// 多模态消息可以支持两种格式
+export interface MultimodalMessage
+  extends GenericMessage<
+    "multimodal",
+    MultimodalContent | MultimodalContentItem[] | string
+  > {}

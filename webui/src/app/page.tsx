@@ -8,6 +8,7 @@ import { fetchSessions, fetchMessages, createSession } from '~/core/api/sessions
 import { useSessionStore } from '~/core/store/session';
 import { useMessageStore } from '~/core/store/messages';
 import { cn } from '~/core/utils';
+import { type Message } from '~/core/messaging';
 
 import { AppHeader } from './_components/AppHeader';
 import { InputBox } from './_components/InputBox';
@@ -15,6 +16,108 @@ import { MessageHistoryView } from './_components/MessageHistoryView';
 import ParticleBgBackground from './_components/ParticlesBackground';
 import { UserGuide } from './_components/UserGuide';
 import ChatHistoryModal from './_components/ChatHistoryModal';
+
+// 🔥 添加消息格式化函数
+const formatMessage = (msg: any): Message => {
+  console.log('🔍 Formatting message:', msg);
+
+  // 如果content是字符串，检查是否是JSON格式的workflow或multimodal
+  if (typeof msg.content === 'string') {
+    try {
+      const parsed = JSON.parse(msg.content);
+
+      // 检查是否是workflow消息
+      if (parsed.thought || parsed.title || parsed.steps || parsed.workflow) {
+        console.log('🔄 Detected workflow message');
+        return {
+          id: msg.id || nanoid(),
+          role: msg.role as 'user' | 'assistant',
+          type: 'workflow' as const,
+          content: parsed.workflow || parsed,
+          timestamp: msg.timestamp,
+          session_id: msg.session_id
+        };
+      }
+
+      // 检查是否是multimodal消息
+      if (Array.isArray(parsed) || (parsed.text && parsed.image)) {
+        console.log('🖼️ Detected multimodal message');
+        let multimodalContent = [];
+
+        if (Array.isArray(parsed)) {
+          multimodalContent = parsed;
+        } else if (parsed.text && parsed.image) {
+          multimodalContent = [
+            { type: "text", text: parsed.text },
+            { type: "image_url", image_url: { url: parsed.image } }
+          ];
+        }
+
+        return {
+          id: msg.id || nanoid(),
+          role: msg.role as 'user' | 'assistant',
+          type: 'multimodal' as const,
+          content: multimodalContent,
+          timestamp: msg.timestamp,
+          session_id: msg.session_id
+        };
+      }
+    } catch (e) {
+      console.log('❌ Failed to parse JSON content, treating as text:', e);
+    }
+  }
+
+  // 如果content是对象
+  if (typeof msg.content === 'object' && msg.content) {
+    // 检查是否是workflow
+    if (msg.content.workflow || msg.content.thought || msg.content.title || msg.content.steps) {
+      console.log('🔄 Detected workflow object message');
+      return {
+        id: msg.id || nanoid(),
+        role: msg.role as 'user' | 'assistant',
+        type: 'workflow' as const,
+        content: msg.content.workflow || msg.content,
+        timestamp: msg.timestamp,
+        session_id: msg.session_id
+      };
+    }
+
+    // 检查是否是multimodal
+    if (Array.isArray(msg.content) || (msg.content.text && msg.content.image)) {
+      console.log('🖼️ Detected multimodal object message');
+      let multimodalContent = [];
+
+      if (Array.isArray(msg.content)) {
+        multimodalContent = msg.content;
+      } else if (msg.content.text && msg.content.image) {
+        multimodalContent = [
+          { type: "text", text: msg.content.text },
+          { type: "image_url", image_url: { url: msg.content.image } }
+        ];
+      }
+
+      return {
+        id: msg.id || nanoid(),
+        role: msg.role as 'user' | 'assistant',
+        type: 'multimodal' as const,
+        content: multimodalContent,
+        timestamp: msg.timestamp,
+        session_id: msg.session_id
+      };
+    }
+  }
+
+  // 默认作为文本消息处理
+  console.log('📝 Treating as text message');
+  return {
+    id: msg.id || nanoid(),
+    role: msg.role as 'user' | 'assistant',
+    type: 'text' as const,
+    content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+    timestamp: msg.timestamp,
+    session_id: msg.session_id
+  };
+};
 
 export default function HomePage() {
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -162,15 +265,9 @@ export default function HomePage() {
             const historyMessages = await fetchMessages(sessionIdFromUrl);
             console.log('💬 Loaded history messages:', historyMessages);
 
-            // 🔥 将后端消息格式转换为前端格式
-            const formattedMessages = historyMessages.map(msg => ({
-              id: msg.id || nanoid(),
-              role: msg.role as 'user' | 'assistant',
-              type: 'text' as const,
-              content: msg.content,
-              timestamp: msg.timestamp,
-              session_id: sessionIdFromUrl
-            }));
+            // 🔥 使用新的格式化函数处理消息
+            const formattedMessages = historyMessages.map(formatMessage);
+            console.log('✅ Formatted messages:', formattedMessages);
 
             // 🔥 同时更新store的状态
             useStore.setState({
@@ -201,15 +298,9 @@ export default function HomePage() {
           const historyMessages = await fetchMessages(firstSession.id);
           console.log('💬 Loaded first session messages:', historyMessages);
 
-          // 🔥 格式化并设置消息
-          const formattedMessages = historyMessages.map(msg => ({
-            id: msg.id || nanoid(),
-            role: msg.role as 'user' | 'assistant',
-            type: 'text' as const,
-            content: msg.content,
-            timestamp: msg.timestamp,
-            session_id: firstSession.id
-          }));
+          // 🔥 使用新的格式化函数处理消息
+          const formattedMessages = historyMessages.map(formatMessage);
+          console.log('✅ Formatted first session messages:', formattedMessages);
 
           useStore.setState({
             messages: formattedMessages,
@@ -273,15 +364,9 @@ export default function HomePage() {
       const historyMessages = await fetchMessages(sessionId);
       console.log('💬 Loaded session messages:', historyMessages);
 
-      // 3. 🔥 格式化消息并更新store
-      const formattedMessages = historyMessages.map(msg => ({
-        id: msg.id || nanoid(),
-        role: msg.role as 'user' | 'assistant',
-        type: 'text' as const,
-        content: msg.content,
-        timestamp: msg.timestamp,
-        session_id: sessionId
-      }));
+      // 3. 🔥 使用新的格式化函数处理消息
+      const formattedMessages = historyMessages.map(formatMessage);
+      console.log('✅ Formatted history messages:', formattedMessages);
 
       useStore.setState({
         messages: formattedMessages,
