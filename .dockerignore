@@ -1,0 +1,24 @@
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# IDE/Editor
+.idea/
+.vscode/
+
+# 前端代码 (完全不应包含在后端镜像中)
+webui/
+
+docs/

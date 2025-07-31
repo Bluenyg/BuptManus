@@ -60,7 +60,7 @@ def code_node(state: State) -> Command[Literal["supervisor"]]:
         goto="supervisor",
     )
 
-
+import asyncio
 def browser_node(state: State) -> Command[Literal["supervisor"]]:
     """Node for the browser agent that performs web browsing tasks."""
     logger.info("Browser agent starting task")
@@ -72,15 +72,29 @@ def browser_node(state: State) -> Command[Literal["supervisor"]]:
         logger.debug(f"去除图片信息后的内容：{first_msg.content}")
 
     try:
-        result = browser_agent.invoke(state)
+        # 检查是否在异步上下文中
+        try:
+            loop = asyncio.get_running_loop()
+            # 如果在异步上下文中，使用线程池执行同步调用
+            import concurrent.futures
+
+            def run_browser_sync():
+                return browser_agent.invoke(state)
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(run_browser_sync)
+                result = future.result(timeout=300)  # 5分钟超时
+
+        except RuntimeError:
+            # 不在异步上下文中，直接调用
+            result = browser_agent.invoke(state)
+
         logger.info("Browser agent completed task")
         logger.debug(f"Browser agent response: {result['messages'][-1].content}")
-
         response_content = result["messages"][-1].content
 
     except Exception as e:
         logger.exception(f"browser_agent.invoke 执行失败: {e}")
-        # 在异常情况下提供默认的错误响应
         response_content = f"Browser agent encountered an error: {str(e)}"
 
     return Command(

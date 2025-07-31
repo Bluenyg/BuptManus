@@ -1,0 +1,56 @@
+name: BuptManus  # 添加这一行
+
+version: '3.8'
+
+services:
+  # 后端服务 (Python/FastAPI)
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"  # 添加这行，暴露后端端口
+    depends_on:
+      - db
+    networks:
+      - app-network
+    environment:
+      - DATABASE_URL=postgresql://user:password@db:5432/BuptManus
+      - ENV=production
+
+  # 前端服务 (Next.js)
+  frontend:
+    build:
+      context: ./webui
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+    environment:
+      # 添加后端 API 地址环境变量
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+
+  # 数据库服务保持不变
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=BuptManus
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+
+networks:
+  app-network:
+    driver: bridge
