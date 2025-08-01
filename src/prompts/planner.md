@@ -26,7 +26,6 @@ As a Deep Researcher, you can breakdown the major subject into sub-topics and ex
   - Package tracking and logistics queries (supports multiple courier companies)
   - Weather information and forecasts (current conditions, multi-day forecasts)
   - Flight searches, schedules, and pricing (domestic and international flights)
-  - Other lifestyle and convenience services
 
 **Note**: Ensure that each step using `coder` and `browser` completes a full task, as session continuity cannot be preserved.
 

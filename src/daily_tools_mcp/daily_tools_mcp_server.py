@@ -27,6 +27,7 @@ from mcp.types import (
 
 # 导入工具
 from tools.logistics_tool import LogisticsTool
+from tools.weather_tool import WeatherTool
 
 # 配置日志
 logging.basicConfig(
@@ -65,6 +66,13 @@ class DailyToolsMCPServer:
             tool_name = "logistics_tracking"
             self.tools[tool_name] = logistics_tool
             logger.info(f"Successfully registered tool: {tool_name}")
+
+            logger.info(f"Successfully registered {len(self.tools)} tools: {list(self.tools.keys())}")
+            # 初始化天气工具
+            weather_tool = WeatherTool()
+            weather_tool_name = "weather_query"
+            self.tools[weather_tool_name] = weather_tool
+            logger.info(f"Successfully registered tool: {weather_tool_name}")
 
             logger.info(f"Successfully registered {len(self.tools)} tools: {list(self.tools.keys())}")
 

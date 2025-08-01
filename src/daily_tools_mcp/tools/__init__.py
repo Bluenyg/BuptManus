@@ -7,13 +7,13 @@
 from .logistics_tool import LogisticsTool
 
 # 未来添加更多工具时在这里导入
-# from .weather_tool import WeatherTool
+from .weather_tool import WeatherTool
 # from .calendar_tool import CalendarTool
 # from .translator_tool import TranslatorTool
 
 __all__ = [
     'LogisticsTool',
-    # 'WeatherTool',
+    'WeatherTool',
     # 'CalendarTool',
     # 'TranslatorTool',
 ]

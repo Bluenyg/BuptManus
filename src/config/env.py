@@ -28,3 +28,5 @@ CUSTOMER_ID = os.getenv("CUSTOMER_ID")
 
 #数据库的url
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+AMAP_API_KEY= os.getenv("AMAP_API_KEY")
