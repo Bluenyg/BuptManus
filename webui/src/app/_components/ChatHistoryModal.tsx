@@ -66,7 +66,7 @@ export default function ChatHistoryModal({ onClose, onSelectSession }: ChatHisto
 
     } catch (error) {
       console.error('❌ Error loading session:', error);
-      alert('加载会话失败，请重试');
+      alert('Failed to load session, please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -116,7 +116,7 @@ export default function ChatHistoryModal({ onClose, onSelectSession }: ChatHisto
 
     } catch (error) {
       console.error("❌ Error deleting session:", error);
-      alert(`删除失败: ${error.message}`);
+      alert(`Error deleting session: ${error.message}`);
       setConfirmId(null);
     }
   };
@@ -152,7 +152,7 @@ export default function ChatHistoryModal({ onClose, onSelectSession }: ChatHisto
         {isLoading ? (
           <div className="text-center py-8">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            <p className="text-gray-500 mt-2">加载中...</p>
+            <p className="text-gray-500 mt-2">Loading...</p>
           </div>
         ) : filtered.length === 0 ? (
           <p className="text-gray-500 text-center py-8">No matching conversation</p>
@@ -208,7 +208,7 @@ export default function ChatHistoryModal({ onClose, onSelectSession }: ChatHisto
                   onClick={handleDeleteConfirmed}
                   className="px-4 py-2 rounded bg-red-500 text-white hover:bg-red-600"
                 >
-                  Confirm deletion
+                  Delete
                 </button>
               </div>
             </div>

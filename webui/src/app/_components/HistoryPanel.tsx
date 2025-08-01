@@ -28,7 +28,7 @@ export default function HistoryPanel({
   };
 
   const handleClear = () => {
-    localStorage.removeItem('langmanus.history');
+    localStorage.removeItem('BuptManus.history');
     setHistory([]);
   };
 

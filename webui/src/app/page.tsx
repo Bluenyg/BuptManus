@@ -16,6 +16,7 @@ import { MessageHistoryView } from './_components/MessageHistoryView';
 import ParticleBgBackground from './_components/ParticlesBackground';
 import { UserGuide } from './_components/UserGuide';
 import ChatHistoryModal from './_components/ChatHistoryModal';
+import { PlusIcon, ClockIcon } from '@heroicons/react/24/solid';
 
 // 🔥 添加消息格式化函数
 const formatMessage = (msg: any): Message => {
@@ -478,18 +479,20 @@ export default function HomePage() {
           )}
 
           {/* 新建对话和历史记录按钮 */}
-          <div className="flex justify-center gap-4 mb-4 px-4">
+          <div className="flex justify-center gap-20 mb-4 px-4">
             <button
-              className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+              className="flex items-center gap-2 px-3.5 py-2 rounded-full font-semibold text-white bg-gradient-to-r from-blue-500 to-blue-600 shadow-md hover:shadow-lg hover:from-blue-600 hover:to-blue-700 transform hover:scale-105 transition duration-200"
               onClick={handleNewChat}
             >
+              <PlusIcon className="w-3.5 h-3.5 text-white" />
               NewChat
             </button>
             <button
-              className="bg-gray-200 text-black px-4 py-2 rounded hover:bg-gray-300"
+              className="flex items-center gap-2 px-5 py-2 rounded-full font-semibold text-gray-800 bg-gray-200 dark:bg-gray-700 dark:text-white hover:bg-gray-300 dark:hover:bg-gray-600 shadow-sm hover:shadow-md transform hover:scale-105 transition duration-200"
               onClick={() => setShowHistoryModal(true)}
             >
-              HistoryChat
+              <ClockIcon className="w-3.5 h-3.5 text-gray-700 dark:text-white" />
+              History
             </button>
           </div>
 
