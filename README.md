@@ -1,58 +1,65 @@
-# LangManus
+# BuptManus
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 [English](./README.md) | [简体中文](./README_zh.md)
 
-> Come From Open Source, Back to Open Source
+> Born from open source, giving back to open source
 
-LangManus is a community-driven AI automation framework that builds upon the incredible work of the open source community. Our goal is to combine language models with specialized tools for tasks like web search, crawling, and Python code execution, while giving back to the community that made this possible.
+BUPTManus is a multi-agent AI automation framework built upon the excellent work of the open source community. Our goal is to combine language models with professional tools (such as web search, crawlers, and Python code execution) to create an automated general intelligence agent.
 
 ## Demo Video
 
-> **Task**: Calculate the influence index of DeepSeek R1 on HuggingFace. This index can be designed by considering a weighted sum of factors such as followers, downloads, and likes.
-
-[![Demo](./assets/demo.gif)](./assets/demo.mp4)
-
-- [View on YouTube](https://youtu.be/sZCHqrQBUGk)
-- [Download Video](https://github.com/langmanus/langmanus/blob/main/assets/demo.mp4)
+- 📦 [Download Demo Video (MP4)](https://github.com/langmanus/langmanus/blob/main/assets/demo.mp4)
 
 ## Table of Contents
 - [Quick Start](#quick-start)
 - [Architecture](#architecture)
 - [Features](#features)
-- [Why LangManus?](#why-langmanus)
-- [Setup](#setup)
+- [Installation & Setup](#installation--setup)
     - [Prerequisites](#prerequisites)
-    - [Installation](#installation)
+    - [Installation Steps](#installation-steps)
+    - [Docker Deployment (**Optional: Cannot automate local browser or perform file system operations**)](#docker-deployment)
     - [Configuration](#configuration)
-- [Usage](#usage)
-- [Web UI](#web-ui)
+- [Backend Server](#backend-server)
+- [Frontend Web Interface](#frontend-web-interface)
 - [Development](#development)
 - [Contributing](#contributing)
-- [License](#license)
 - [Acknowledgments](#acknowledgments)
 
 ## Quick Start
 
 ```bash
-# Clone the repository
-git clone https://github.com/langmanus/langmanus.git
-cd langmanus
+# Navigate to directory
+cd BuptManus
 
-# Create and activate virtual environment through uv
+# Create and activate virtual environment with uv
 uv python install 3.12
 uv venv --python 3.12
 
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 
 # Install dependencies
 uv sync
 
 # Configure environment
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env file and fill in your API keys
+```
+
+### Browser Dependencies Installation
+
+BuptManus supports multiple browser automation solutions, with Playwright recommended:
+
+```bash
+# Install Playwright browsers
+playwright install
+
+# Or install only Chromium (recommended)
+playwright install chromium
+
+# Verify installation
+playwright --version
 
 # Run the project
 uv run main.py
@@ -60,19 +67,20 @@ uv run main.py
 
 ## Architecture
 
-LangManus implements a hierarchical multi-agent system where a supervisor coordinates specialized agents to accomplish complex tasks:
+BUPTManus implements a hierarchical multi-agent system with a supervisor agent coordinating specialized agents to complete complex tasks:
 
-![LangManus Architecture](./assets/architecture.png)
+![BuptManus Architecture](assets/liuchengtu.png)
 
-The system consists of the following agents working together:
+The system consists of the following agents working collaboratively:
 
-1. **Coordinator** - The entry point that handles initial interactions and routes tasks
-2. **Planner** - Analyzes tasks and creates execution strategies
-3. **Supervisor** - Oversees and manages the execution of other agents
-4. **Researcher** - Gathers and analyzes information
-5. **Coder** - Handles code generation and modifications
-6. **Browser** - Performs web browsing and information retrieval
-7. **Reporter** - Generates reports and summaries of the workflow results
+1. **Coordinator**: Entry point for workflows, handles initial interactions and routes tasks
+2. **Planner**: Analyzes tasks and formulates execution strategies
+3. **Supervisor**: Oversees and manages execution of other agents
+4. **Researcher**: Collects and analyzes information
+5. **Coder**: Responsible for code generation and modification
+6. **Browser**: Executes web browsing and information retrieval
+7. **Reporter**: Generates reports and summaries of workflow results
+8. **Life-Tool**: Provides life services such as weather queries and package tracking by calling tools in Mcp-Server, converting technical interfaces to natural language responses with strong extensibility
 
 ## Features
 
@@ -80,63 +88,77 @@ The system consists of the following agents working together:
 - 🤖 **LLM Integration**
     - Support for open source models like Qwen
     - OpenAI-compatible API interface
-    - Multi-tier LLM system for different task complexities
+    - Multi-layer LLM system adapted for different task complexities
 
 ### Tools and Integrations
 - 🔍 **Search and Retrieval**
-    - Web search via Tavily API
-    - Neural search with Jina
+    - Web search through Tavily API
+    - Neural search using Jina
     - Advanced content extraction
 
 ### Development Features
 - 🐍 **Python Integration**
     - Built-in Python REPL
     - Code execution environment
-    - Package management with uv
+    - Package management using uv
 
 ### Workflow Management
 - 📊 **Visualization and Control**
-    - Workflow graph visualization
+    - Workflow diagram visualization
     - Multi-agent orchestration
-    - Task delegation and monitoring
+    - Task allocation and monitoring
 
-## Why LangManus?
-
-We believe in the power of open source collaboration. This project wouldn't be possible without the amazing work of projects like:
-- [Qwen](https://github.com/QwenLM/Qwen) for their open source LLMs
-- [Tavily](https://tavily.com/) for search capabilities
-- [Jina](https://jina.ai/) for neural search technology
-- And many other open source contributors
-
-We're committed to giving back to the community and welcome contributions of all kinds - whether it's code, documentation, bug reports, or feature suggestions.
-
-## Setup
+## Installation & Setup
 
 ### Prerequisites
 
 - [uv](https://github.com/astral-sh/uv) package manager
 
-### Installation
+### Installation Steps
 
-LangManus leverages [uv](https://github.com/astral-sh/uv) as its package manager to streamline dependency management.
-Follow the steps below to set up a virtual environment and install the necessary dependencies:
+BUPTManus uses [uv](https://github.com/astral-sh/uv) as a package manager to simplify dependency management.
+Follow these steps to set up the virtual environment and install necessary dependencies:
 
 ```bash
-# Step 1: Create and activate a virtual environment through uv
+# Step 1: Create and activate virtual environment with uv
 uv python install 3.12
 uv venv --python 3.12
 
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+# Unix/macOS:
+source .venv/bin/activate
+
+# Windows:
+.venv\Scripts\activate
 
 # Step 2: Install project dependencies
 uv sync
+
+# Step 3: Install browser automation dependencies
+playwright install
 ```
 
-By completing these steps, you'll ensure your environment is properly configured and ready for development.
+### Docker Deployment
+- **Optional: Cannot automate local browser or perform file system operations**
+- Using Docker allows quick deployment of BuptManus without manual environment configuration:
+
+```bash
+# Build Docker image
+docker build -t buptmanus .
+
+# Run container
+docker run -d \
+  --name buptmanus \
+  -p 3000:3000 \
+  -v $(pwd)/.env:/app/.env \
+  buptmanus
+
+# Or use docker-compose
+docker-compose up -d
+```
 
 ### Configuration
 
-LangManus uses a three-tier LLM system with separate configurations for reasoning, basic tasks, and vision-language tasks. Create a `.env` file in the project root and configure the following environment variables:
+BUPTManus uses a three-tier LLM system for reasoning, basic tasks, and vision-language tasks respectively. Create a `.env` file in the project root and configure the following environment variables:
 
 ```ini
 # Reasoning LLM Configuration (for complex reasoning tasks)
@@ -144,7 +166,7 @@ REASONING_MODEL=your_reasoning_model
 REASONING_API_KEY=your_reasoning_api_key
 REASONING_BASE_URL=your_custom_base_url  # Optional
 
-# Basic LLM Configuration (for simpler tasks)
+# Basic LLM Configuration (for simple tasks)
 BASIC_MODEL=your_basic_model
 BASIC_API_KEY=your_basic_api_key
 BASIC_BASE_URL=your_custom_base_url  # Optional
@@ -159,50 +181,31 @@ TAVILY_API_KEY=your_tavily_api_key
 JINA_API_KEY=your_jina_api_key  # Optional
 
 # Browser Configuration
-CHROME_INSTANCE_PATH=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome  # Optional, path to Chrome executable
+CHROME_INSTANCE_PATH=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome  # Optional, Chrome executable path
 ```
 
 > **Note:**
 >
 > - The system uses different models for different types of tasks:
 >     - Reasoning LLM for complex decision-making and analysis
->     - Basic LLM for simpler text-based tasks
+>     - Basic LLM for simple text tasks
 >     - Vision-Language LLM for tasks involving image understanding
-> - You can customize the base URLs for all LLMs independently
-> - Each LLM can use different API keys if needed
-> - Jina API key is optional. Provide your own key to access a higher rate limit (get your API key at [jina.ai](https://jina.ai/))
-> - Tavily search is configured to return a maximum of 5 results by default (get your API key at [app.tavily.com](https://app.tavily.com/))
+> - Base URLs for all LLMs can be customized independently
+> - Each LLM can use different API keys
+> - Jina API key is optional; providing your own key gives higher rate limits (you can get this key at [jina.ai](https://jina.ai/))
+> - Tavily search is configured by default to return up to 5 results (you can get this key at [app.tavily.com](https://app.tavily.com/))
 
-You can copy the `.env.example` file as a template to get started:
+You can copy the `.env.example` file as a template to start:
 
 ```bash
 cp .env.example .env
 ```
 
-### Configure Pre-commit Hook
-LangManus includes a pre-commit hook that runs linting and formatting checks before each commit. To set it up:
-
-1. Make the pre-commit script executable:
-```bash
-chmod +x pre-commit
-```
-
-2. Install the pre-commit hook:
-```bash
-ln -s ../../pre-commit .git/hooks/pre-commit
-```
-
-The pre-commit hook will automatically:
-- Run linting checks (`make lint`)
-- Run code formatting (`make format`)
-- Add any reformatted files back to staging
-- Prevent commits if there are any linting or formatting errors
-
-## Usage
+## Backend Server
 
 ### Basic Execution
 
-To run LangManus with default settings:
+Run BUPTManus with default settings:
 
 ```bash
 uv run main.py
@@ -210,109 +213,173 @@ uv run main.py
 
 ### API Server
 
-LangManus provides a FastAPI-based API server with streaming support:
+BUPTManus provides a FastAPI-based API server with streaming response support:
 
 ```bash
-# Start the API server
+# Start API server
 make serve
 
 # Or run directly
 uv run server.py
 ```
 
-The API server exposes the following endpoints:
+The API server provides the following endpoints:
 
-- `POST /api/chat/stream`: Chat endpoint for LangGraph invoke with streaming support
+- `POST /api/chat/stream`: Chat endpoint for LangGraph calls with streaming response
     - Request body:
     ```json
     {
       "messages": [
-        {"role": "user", "content": "Your query here"}
-      ],
+        {"role": "user", "content": "Enter your query here"}
+      ],  
       "debug": false
     }
     ```
-    - Returns a Server-Sent Events (SSE) stream with the agent's responses
+    - Returns Server-Sent Events (SSE) stream containing agent responses
+
+- `GET /api/chat/sessions`: Get all chat sessions for the user
+    - Returns array of sessions with ID, title, creation time, etc.
+
+- `POST /api/chat/sessions`: Create a new chat session
+    - Request body:
+    ```json
+    {
+      "title": "Optional session title"
+    }
+    ```
+
+- `DELETE /api/chat/sessions/{session_id}`: Delete specified session and all its messages
+    - Path parameter: `session_id` - ID of session to delete
+
+- `GET /api/chat/sessions/{session_id}/messages`: Get all message history for specified session
+    - Path parameter: `session_id` - Session ID
+    - Returns array of messages sorted by time
 
 ### Advanced Configuration
 
-LangManus can be customized through various configuration files in the `src/config` directory:
+BUPTManus can be customized through various configuration files in the `src/config` directory:
 - `env.py`: Configure LLM models, API keys, and base URLs
-- `tools.py`: Adjust tool-specific settings (e.g., Tavily search results limit)
+- `tools.py`: Adjust tool-specific settings (such as Tavily search result limits)
 - `agents.py`: Modify team composition and agent system prompts
 
-### Agent Prompts System
+### Agent Prompt System
 
-LangManus uses a sophisticated prompting system in the `src/prompts` directory to define agent behaviors and responsibilities:
+BUPTManus uses a sophisticated prompt system in the `src/prompts` directory to define agent behaviors and responsibilities:
 
 #### Core Agent Roles
 
-- **Supervisor ([`src/prompts/supervisor.md`](src/prompts/supervisor.md))**: Coordinates the team and delegates tasks by analyzing requests and determining which specialist should handle them. Makes decisions about task completion and workflow transitions.
+- **Supervisor ([`src/prompts/supervisor.md`](src/prompts/supervisor.md))**: Coordinates the team and assigns tasks by analyzing requests and determining which expert should handle them. Responsible for deciding task completion and workflow transitions.
 
-- **Researcher ([`src/prompts/researcher.md`](src/prompts/researcher.md))**: Specializes in information gathering through web searches and data collection. Uses Tavily search and web crawling capabilities while avoiding mathematical computations or file operations.
+- **Researcher ([`src/prompts/researcher.md`](src/prompts/researcher.md))**: Specializes in gathering information through web search and data collection. Uses Tavily search and web crawling capabilities, avoiding mathematical calculations or file operations.
 
 - **Coder ([`src/prompts/coder.md`](src/prompts/coder.md))**: Professional software engineer role focused on Python and bash scripting. Handles:
     - Python code execution and analysis
     - Shell command execution
-    - Technical problem-solving and implementation
+    - Technical problem solving and implementation
 
-- **File Manager ([`src/prompts/file_manager.md`](src/prompts/file_manager.md))**: Handles all file system operations with a focus on properly formatting and saving content in markdown format.
+- **File Manager ([`src/prompts/file_manager.md`](src/prompts/file_manager.md))**: Handles all file system operations with emphasis on proper formatting and saving of markdown content.
 
-- **Browser ([`src/prompts/browser.md`](src/prompts/browser.md))**: Web interaction specialist that handles:
+- **Browser ([`src/prompts/browser.md`](src/prompts/browser.md))**: Web interaction expert handling:
     - Website navigation
-    - Page interaction (clicking, typing, scrolling)
+    - Page interactions (clicking, typing, scrolling)
     - Content extraction from web pages
+
+- **Life-Tool ([`src/prompts/life_tool.md`](src/prompts/life_tools.md))**: Life service agent that provides weather queries, package tracking and other life services by calling tools in Mcp-Server, converting technical interfaces to natural language responses:
 
 #### Prompt System Architecture
 
-The prompts system uses a template engine ([`src/prompts/template.py`](src/prompts/template.py)) that:
-- Loads role-specific markdown templates
-- Handles variable substitution (e.g., current time, team member information)
-- Formats system prompts for each agent
+The prompt system uses a template engine ([`src/prompts/template.py`](src/prompts/template.py)) to:
+- Load role-specific markdown templates
+- Handle variable substitution (such as current time, team member information)
+- Format system prompts for each agent
 
-Each agent's prompt is defined in a separate markdown file, making it easy to modify behavior and responsibilities without changing the underlying code.
+Each agent's prompts are defined in separate markdown files, allowing easy modification of behaviors and responsibilities without changing underlying code.
 
-## Web UI
+## Frontend Web Interface
 
-LangManus provides a default web UI.
+### 🌌 BuptManus Web UI
 
-Please refer to the [langmanus/langmanus-web-ui](https://github.com/langmanus/langmanus-web) project for more details.
+BUPTManus provides a powerful Web user interface that offers an intuitive interactive experience for the multi-agent system.
+
+### 🚀 Web Interface Features
+
+- **Interactive Collapsible Sidebar**: Hover to expand for quick access to chat history, auto-collapse to keep workspace clean. Stays open when using search bar!
+- **Instant History Search**: Real-time filtering of chat sessions in sidebar
+- **Customizable UI**: Personalize experience through in-app settings menu, can change animated particle background colors
+- **Safe and Intuitive Deletion**: Chat items show delete icon on hover with in-place confirmation dialog to prevent accidental deletion
+- **User Guide**: One-time modal for new users introducing core features
+- **Deep Thinking and Search Options**: Optional toggles to enhance LLM behavior
+- **Multimodal Input**: Upload images and send text at once (supports Base64 encoded inline)
+- **Dark Mode Toggle**: Instant light/dark switching using Tailwind `darkMode: 'class'`
+- **Animated Particle Background**: Beautiful customizable background powered by `tsparticles`
+- **Hot Reload Dev Server**: Via `pnpm dev`
+- **Modern Tech Stack**: Built with **Next.js**, **TypeScript**, **Tailwind CSS**, and **Zustand** state management
+
+### 🔧 Web Interface Prerequisites
+
+- [BuptManus Core](https://github.com/Bluenyg/BuptManus)
+- Node.js `v18+`
+- `pnpm` `v8+`
+
+### ⚙️ Web Interface Setup
+
+```bash
+# Enter web interface directory
+cd webui
+
+# Create environment configuration file
+cp .env.example .env
+
+# Open .env and configure
+NEXT_PUBLIC_API_URL=http://localhost:3000/api
+```
+
+### 📦 Install and Start Web Interface
+
+```bash
+# Install dependencies
+pnpm install
+
+# Run project in development mode
+pnpm dev
+```
+
+Then visit http://localhost:3000
+
+### 🧪 Multimodal Support
+
+You can now upload images combined with natural language text. Images are converted to Base64 format and transmitted as part of the message payload.
+
+```json
+{
+  "type": "multimodal",
+  "content": {
+    "text": "What does this chart show?",
+    "image": "data:image/png;base64,iVBORw0KGg..."
+  }
+}
+```
 
 ## Development
 
-### Testing
+BUPTManus provides a complete development environment and toolchain:
 
-Run the test suite:
+### Code Quality Tools
+- Code linting: `make lint`
+- Code formatting: `make format`
 
-```bash
-# Run all tests
-make test
-
-# Run specific test file
-pytest tests/integration/test_workflow.py
-
-# Run with coverage
-make coverage
-```
-
-### Code Quality
-
-```bash
-# Run linting
-make lint
-
-# Format code
-make format
-```
+### Development Servers
+- API server: `make serve`
+- Web UI dev server: `pnpm dev` (in webui directory)
 
 ## Contributing
 
-We welcome contributions of all kinds! Whether you're fixing a typo, improving documentation, or adding a new feature, your help is appreciated. Please see our [Contributing Guide](CONTRIBUTING.md) for details on how to get started.
+We welcome all forms of contributions! Whether fixing typos, improving documentation, or adding new features, your help is greatly appreciated. Please check our [Contributing Guide](CONTRIBUTING.md) to learn how to get started.
 
-## License
-
-This project is open source and available under the [MIT License](LICENSE).
+All contributions are welcome! From fixing typos to adding complete features — you're awesome!
 
 ## Acknowledgments
 
-Special thanks to all the open source projects and contributors that make LangManus possible. We stand on the shoulders of giants.
+Special thanks to all open source projects and contributors that make BUPTManus possible. We stand on the shoulders of giants.
+
+Heartfelt thanks to the open source community and all contributors. BUPTManus stands on the shoulders of giants. 🦾
