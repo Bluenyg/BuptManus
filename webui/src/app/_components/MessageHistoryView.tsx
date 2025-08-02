@@ -59,10 +59,32 @@ function MessageView({ message }: { message: Message }) {
   }
 
   if (message.type === "workflow") {
+    // 🔥 增加安全检查
+    const workflowData = message.content?.workflow;
+
+    if (!workflowData) {
+      console.error("❌ Workflow message missing workflow data:", message);
+      return (
+        <MessageBubble role={message.role}>
+          <div className="text-red-500 italic">
+            Workflow数据缺失
+          </div>
+        </MessageBubble>
+      );
+    }
+
+    // 🔥 确保所有必需字段存在
+    const safeWorkflow = {
+      title: workflowData.title || 'Workflow',
+      thought: workflowData.thought || '',
+      steps: Array.isArray(workflowData.steps) ? workflowData.steps : [],
+      ...workflowData
+    };
+
     return (
       <WorkflowProgressView
         className="mb-8 max-h-[400px] min-h-[400px] min-w-[928px] max-w-[928px]"
-        workflow={message.content.workflow}
+        workflow={safeWorkflow} // 🔥 传递安全的workflow对象
       />
     );
   }

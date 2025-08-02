@@ -20,21 +20,43 @@ export function WorkflowProgressView({
   className?: string;
   workflow: Workflow;
 }) {
+  // 安全检查
+  if (!workflow) {
+    return (
+      <div className={cn("p-4 bg-red-50 border border-red-200 rounded-md", className)}>
+        <div className="text-red-600">⚠️ Workflow数据为空</div>
+      </div>
+    );
+  }
+
+  const safeSteps = Array.isArray(workflow.steps) ? workflow.steps : [];
+
+  if (safeSteps.length === 0) {
+    return (
+      <div className={cn("p-4 bg-yellow-50 border border-yellow-200 rounded-md", className)}>
+        <div className="text-yellow-600">📝 暂无工作流步骤</div>
+      </div>
+    );
+  }
+
   const steps = useMemo(() => {
-    return workflow.steps.filter((step) => step.agentName !== "reporter");
-  }, [workflow]);
+    return safeSteps.filter((step) => step.agentName !== "reporter");
+  }, [safeSteps]);
+
   const reportStep = useMemo(() => {
-    return workflow.steps.find((step) => step.agentName === "reporter");
-  }, [workflow]);
+    return safeSteps.find((step) => step.agentName === "reporter");
+  }, [safeSteps]);
+
   return (
     <div className="p-4 bg-white text-gray-900 dark:bg-gray-100 dark:text-black rounded-md shadow-md">
       <div className={cn("flex overflow-hidden rounded-2xl border", className)}>
         <aside className="flex w-[220px] flex-shrink-0 flex-col border-r bg-[rgba(0,0,0,0.02)]">
           <div className="flex-shrink-0 px-4 py-4 font-medium">Flow</div>
           <ol className="flex flex-grow list-disc flex-col gap-4 px-4 py-2">
-            {steps.map((step) => (
+            {/* 🔥 添加了 key */}
+            {steps.map((step, index) => (
               <li
-                key={step.id}
+                key={`step-nav-${step.id || index}`}
                 className="flex cursor-pointer items-center gap-2"
                 onClick={() => {
                   const element = document.getElementById(step.id);
@@ -54,27 +76,32 @@ export function WorkflowProgressView({
         </aside>
         <main className="flex-grow overflow-auto bg-white p-4">
           <ul className="flex flex-col gap-4">
+            {/* 🔥 添加了 key */}
             {steps.map((step, stepIndex) => (
-              <li key={step.id} className="flex flex-col gap-2">
+              <li key={`step-main-${step.id || stepIndex}`} className="flex flex-col gap-2">
                 <h3 id={step.id} className="ml-[-4px] text-lg font-bold">
-                  📍 Step {stepIndex + 1}: {getStepName(step)}
+                  Step {stepIndex + 1}: {getStepName(step)}
                 </h3>
                 <ul className="flex flex-col gap-2">
-                  {step.tasks
+                  {/* 🔥 添加了 key，并确保 tasks 数组存在 */}
+                  {(step.tasks || [])
                     .filter(
                       (task) =>
                         !(
                           task.type === "thinking" &&
-                          !task.payload.text &&
-                          !task.payload.reason
+                          !task.payload?.text &&
+                          !task.payload?.reason
                         ),
                     )
-                    .map((task) =>
+                    .map((task, taskIndex) =>
                       task.type === "thinking" &&
                       step.agentName === "planner" ? (
-                        <PlanTaskView key={task.id} task={task} />
+                        <PlanTaskView
+                          key={`plan-task-${task.id || `${stepIndex}-${taskIndex}`}`}
+                          task={task}
+                        />
                       ) : (
-                        <li key={task.id} className="flex">
+                        <li key={`task-${task.id || `${stepIndex}-${taskIndex}`}`} className="flex">
                           {task.type === "thinking" ? (
                             <Markdown
                               className="pl-6 opacity-70"
@@ -82,7 +109,7 @@ export function WorkflowProgressView({
                                 fontSize: "smaller",
                               }}
                             >
-                              {task.payload.text}
+                              {task.payload?.text || ""}
                             </Markdown>
                           ) : (
                             <ToolCallView task={task} />
@@ -91,17 +118,19 @@ export function WorkflowProgressView({
                       ),
                     )}
                 </ul>
+                {/* 🔥 添加条件检查避免最后一个元素显示分隔线 */}
                 {stepIndex < steps.length - 1 && <hr className="mb-4 mt-8" />}
               </li>
             ))}
           </ul>
         </main>
       </div>
-      {reportStep && (
+      {/* 🔥 添加安全检查 */}
+      {reportStep && reportStep.tasks && reportStep.tasks.length > 0 && (
         <div className="flex flex-col gap-4 p-4">
           <Markdown>
             {reportStep.tasks[0]?.type === "thinking"
-              ? reportStep.tasks[0].payload.text
+              ? reportStep.tasks[0].payload?.text || ""
               : ""}
           </Markdown>
         </div>
@@ -115,16 +144,75 @@ function PlanTaskView({ task }: { task: ThinkingTask }) {
     title?: string;
     steps?: { title?: string; description?: string }[];
   }>(() => {
-    if (task.payload.text) {
-      return parse(task.payload.text);
+    if (!task.payload?.text) {
+      return {};
     }
-    return {};
-  }, [task]);
+
+    try {
+      const text = task.payload.text.trim();
+
+      // 如果文本为空，返回空对象
+      if (!text) {
+        return {};
+      }
+
+      // 尝试找到JSON部分
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const jsonStr = jsonMatch[0];
+        try {
+          // 先尝试使用标准JSON解析
+          return JSON.parse(jsonStr);
+        } catch (standardError) {
+          // 如果标准解析失败，使用best-effort-json-parser
+          console.warn("Standard JSON parse failed, using best-effort parser:", standardError);
+          return parse(jsonStr);
+        }
+      }
+
+      // 如果没找到JSON格式，尝试直接解析整个文本
+      try {
+        return JSON.parse(text);
+      } catch (directError) {
+        console.warn("Direct JSON parse failed, using best-effort parser:", directError);
+        return parse(text);
+      }
+
+    } catch (error) {
+      // 静默处理错误，不在控制台显示
+      console.warn("Failed to parse plan text, returning empty object:", {
+        error: error.message,
+        text: task.payload?.text?.substring(0, 100) + "..." // 只显示前100个字符用于调试
+      });
+      return {};
+    }
+  }, [task.payload?.text]);
+
   const [showReason, setShowReason] = useState(true);
-  const reason = task.payload.reason;
-  const markdown = `## ${plan.title ?? ""}\n\n${plan.steps?.map((step) => `- **${step.title ?? ""}**\n\n${step.description ?? ""}`).join("\n\n") ?? ""}`;
+  const reason = task.payload?.reason;
+
+  // 安全地构建 markdown，处理可能为空的字段
+  const markdown = useMemo(() => {
+    const title = plan.title || "Planning";
+    const steps = Array.isArray(plan.steps) ? plan.steps : [];
+
+    if (steps.length === 0) {
+      return `## ${title}\n\n_No steps available_`;
+    }
+
+    const stepsMarkdown = steps
+      .map((step, index) => {
+        const stepTitle = step?.title || `Step ${index + 1}`;
+        const stepDescription = step?.description || "";
+        return `- **${stepTitle}**\n\n${stepDescription}`;
+      })
+      .join("\n\n");
+
+    return `## ${title}\n\n${stepsMarkdown}`;
+  }, [plan]);
+
   return (
-    <li key={task.id} className="flex flex-col">
+    <li className="flex flex-col">
       {reason && (
         <div>
           <div>
@@ -149,7 +237,7 @@ function PlanTaskView({ task }: { task: ThinkingTask }) {
         </div>
       )}
       <div>
-        <Markdown className="pl-6">{markdown ?? ""}</Markdown>
+        <Markdown className="pl-6">{markdown}</Markdown>
       </div>
     </li>
   );
@@ -170,6 +258,6 @@ function getStepName(step: WorkflowStep) {
     case "supervisor":
       return "Thinking";
     default:
-      return step.agentName;
+      return step.agentName || "Unknown";
   }
 }

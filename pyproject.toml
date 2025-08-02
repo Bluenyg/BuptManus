@@ -27,7 +27,9 @@ dependencies = [
     "yfinance>=0.2.54",
     "langchain-deepseek>=0.1.2",
     "mcp>=1.11.0",
-    "sqlalchemy>=2.0.38"
+    "sqlalchemy>=2.0.38",
+    "ReportLab>=4.4.3",
+    "pdfkit>=1.0.0"
 ]
 
 [project.optional-dependencies]

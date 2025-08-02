@@ -7,6 +7,7 @@ from typing import List
 from src.prompts import apply_prompt_template
 from .llm import get_llm_by_type
 from src.config.agents import AGENT_LLM_MAP
+import platform
 
 # --- 现在可以安全地在顶层导入工具了 ---
 from src.tools import (
@@ -14,7 +15,7 @@ from src.tools import (
     crawl_tool,
     python_repl_tool,
     bash_tool,
-    browser_tool
+    browser_tool,
 )
 from src.tools.langchain_wrappers import get_langchain_tools
 
@@ -25,6 +26,7 @@ research_agent = create_react_agent(
     tools=[tavily_tool, crawl_tool],
     prompt=lambda state: apply_prompt_template("researcher", state),
 )
+
 
 coder_agent = create_react_agent(
     get_llm_by_type(AGENT_LLM_MAP["coder"]),
