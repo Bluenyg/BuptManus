@@ -79,6 +79,59 @@ def get_life_tools_agent():
     logger.info(f"Life tools agent created successfully with tools: {[tool.name for tool in mcp_tools]}")
     return agent
 
+from langchain_openai import ChatOpenAI
+
+# === 桌面代理相关 ===
+# 不再在顶层初始化，改为函数式管理
+_desktop_agent_instance = None
+_desktop_agent_failed = False
 
 
+def get_desktop_agent():
+    """获取桌面代理实例（单例模式）"""
+    global _desktop_agent_instance, _desktop_agent_failed
 
+    if _desktop_agent_failed:
+        return None
+
+    if _desktop_agent_instance is None:
+        try:
+            from windows_use.agent.service import Agent
+
+            # 尝试不同的初始化方式
+            try:
+                # 方式1: 使用默认配置（推荐）
+                llm=ChatOpenAI(
+                    model="gpt-4o",
+                    temperature=0,
+                    api_key="sk-c7693f59328161da43dbd2b97c5ef843ca4bf246ead126f9",
+                    base_url="https://api.chatnio.net/v1"
+                )
+                _desktop_agent_instance = Agent(llm=llm)
+                logger.info("Desktop agent created with default config")
+            except Exception as e:
+                logger.error(f"Failed to create desktop agent: {e}")
+                _desktop_agent_failed = True
+                return None
+
+        except ImportError as e:
+            logger.error(f"Failed to import windows-use Agent: {e}")
+            _desktop_agent_failed = True
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error creating desktop agent: {e}")
+            _desktop_agent_failed = True
+            return None
+
+    return _desktop_agent_instance
+
+
+def reset_desktop_agent():
+    """重置桌面代理实例（用于错误恢复）"""
+    global _desktop_agent_instance, _desktop_agent_failed
+    _desktop_agent_instance = None
+    _desktop_agent_failed = False
+
+
+# 为了向后兼容
+desktop_agent = None  # 标记为已废弃，使用 get_desktop_agent() 替代

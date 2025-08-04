@@ -6,7 +6,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 from langgraph.graph import END
 
-from src.agents import research_agent, coder_agent, browser_agent, get_life_tools_agent
+from src.agents import research_agent, coder_agent, browser_agent, get_life_tools_agent,get_desktop_agent
 from src.agents.llm import get_llm_by_type
 from src.config import TEAM_MEMBERS
 from src.config.agents import AGENT_LLM_MAP
@@ -156,6 +156,80 @@ def supervisor_node(state: State) -> Command[Literal[*TEAM_MEMBERS, "__end__"]]:
     return Command(goto=goto, update={"next": goto, "task_retry_counts": retry_counts})
 
 
+def convert_yaml_like_to_json(yaml_like_text: str) -> str:
+    """尝试将类似 YAML 的文本转换为 JSON 格式"""
+    try:
+        import re
+
+        # 提取 thought, title, 和 steps 部分
+        thought_match = re.search(r'thought:\s*(.*?)(?=\n\w+:|$)', yaml_like_text, re.DOTALL)
+        title_match = re.search(r'title:\s*(.*?)(?=\n\w+:|$)', yaml_like_text, re.DOTALL)
+
+        thought = thought_match.group(1).strip() if thought_match else ""
+        title = title_match.group(1).strip() if title_match else "Generated Plan"
+
+        # 提取 steps 数组
+        steps_match = re.search(r'steps:\s*\[(.*?)\]', yaml_like_text, re.DOTALL)
+        if not steps_match:
+            return None
+
+        steps_text = steps_match.group(1)
+
+        # 解析每个 step
+        steps = []
+        step_pattern = r'\{\s*agent_name:\s*"([^"]+)",\s*title:\s*"([^"]+)",\s*description:\s*"([^"]+)"(?:,\s*note:\s*"([^"]+)")?\s*\}'
+
+        for match in re.finditer(step_pattern, steps_text):
+            step = {
+                "agent_name": match.group(1),
+                "title": match.group(2),
+                "description": match.group(3)
+            }
+            if match.group(4):  # note 是可选的
+                step["note"] = match.group(4)
+            steps.append(step)
+
+        # 构建 JSON 结构
+        json_structure = {
+            "thought": thought,
+            "title": title,
+            "steps": steps
+        }
+
+        return json.dumps(json_structure, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        logger.error(f"Error converting YAML-like format: {e}")
+        return None
+
+
+def create_basic_plan_json(original_text: str) -> str:
+    """创建一个基本的 JSON 计划结构"""
+    # 尝试从原始文本中提取有用信息
+    import re
+
+    # 查找是否提到了特定的 agent
+    agent_mentions = re.findall(r'(coder|researcher|browser|reporter|life_tools)', original_text.lower())
+
+    # 默认使用 coder，或者使用找到的第一个 agent
+    agent_name = agent_mentions[0] if agent_mentions else "coder"
+
+    # 创建基本计划
+    plan = {
+        "thought": "Processing user request for 3D animation",
+        "title": "3D Animation Display Plan",
+        "steps": [
+            {
+                "agent_name": agent_name,
+                "title": "Create and run 3D animation",
+                "description": "Generate Python code to create a 3D animation using matplotlib and execute it",
+                "note": "Ensure matplotlib and numpy are available"
+            }
+        ]
+    }
+
+    return json.dumps(plan, ensure_ascii=False, indent=2)
+
 def planner_node(state: State) -> Command[Literal["supervisor", "__end__"]]:
     """
     Planner node that generates the full plan.
@@ -213,19 +287,61 @@ def planner_node(state: State) -> Command[Literal["supervisor", "__end__"]]:
         full_response += chunk.content
     logger.debug(f"Planner response: {full_response}")
 
+    # 6. 改进的 JSON 处理逻辑
+    # 先清理响应格式
     if full_response.startswith("```json"):
-        full_response = full_response.removeprefix("```json")
+        full_response = full_response.removeprefix("```json").strip()
     if full_response.endswith("```"):
-        full_response = full_response.removesuffix("```")
+        full_response = full_response.removesuffix("```").strip()
 
     goto = "supervisor"
+
+    # 尝试解析 JSON
     try:
-        # Es crucial que el modelo de visión también devuelva un JSON válido.
-        # Puede que necesites ajustar tu prompt para asegurarte de esto.
-        json.loads(full_response)
-    except json.JSONDecodeError:
-        logger.warning(f"Planner response is not a valid JSON. Response:\n{full_response}")
-        goto = "__end__"
+        parsed_json = json.loads(full_response)
+        logger.info("Planner response successfully parsed as JSON")
+    except json.JSONDecodeError as e:
+        logger.warning(f"Planner response is not a valid JSON. Error: {e}")
+        logger.info("Attempting to convert YAML-like format to JSON...")
+
+        # 尝试转换类似 YAML 的格式为 JSON
+        try:
+            # 如果响应包含类似 YAML 的结构，尝试转换
+            if "steps:" in full_response and "agent_name:" in full_response:
+                # 简单的启发式转换：将 YAML 风格转换为 JSON
+                converted_response = convert_yaml_like_to_json(full_response)
+                if converted_response:
+                    full_response = converted_response
+                    parsed_json = json.loads(full_response)
+                    logger.info("Successfully converted YAML-like format to JSON")
+                else:
+                    # 如果转换失败，创建一个基本的 JSON 结构
+                    logger.warning("Failed to convert format. Creating basic JSON structure.")
+                    full_response = create_basic_plan_json(full_response)
+                    parsed_json = json.loads(full_response)
+            else:
+                # 如果不是预期的格式，创建基本结构
+                logger.warning("Unexpected format. Creating basic JSON structure.")
+                full_response = create_basic_plan_json(full_response)
+                parsed_json = json.loads(full_response)
+
+        except Exception as conversion_error:
+            logger.error(f"Failed to convert or create valid JSON: {conversion_error}")
+            logger.error(f"Original response: {full_response}")
+            # 最后的备用方案：创建一个简单的默认计划
+            full_response = json.dumps({
+                "thought": "Plan generation failed, using default structure",
+                "title": "Default Plan",
+                "steps": [
+                    {
+                        "agent_name": "coder",
+                        "title": "Execute user request",
+                        "description": "Process the user's request using available tools",
+                        "note": "Fallback plan due to planning format issues"
+                    }
+                ]
+            }, ensure_ascii=False, indent=2)
+            logger.info("Created fallback JSON plan")
 
     return Command(
         update={
@@ -324,4 +440,121 @@ def life_tools_node(state: State) -> Command[Literal["supervisor"]]:
         goto="supervisor",
     )
 
+
+def desktop_node(state: State) -> Command[Literal["supervisor"]]:
+    """Node for the desktop agent that handles Windows desktop automation."""
+    logger.info("Desktop agent starting task")
+    desktop_agent=get_desktop_agent()
+    # 从状态中提取最新的用户消息
+    messages = state.get("messages", [])
+    if not messages:
+        response_content = "No messages found in state"
+        return Command(
+            update={
+                "messages": [
+                    HumanMessage(
+                        content=RESPONSE_FORMAT.format("desktop", response_content),
+                        name="desktop",
+                    )
+                ]
+            },
+            goto="supervisor",
+        )
+
+    # 获取最新的用户请求
+    latest_message = messages[-1]
+    user_query = ""
+
+    # 处理不同类型的消息格式
+    if hasattr(latest_message, 'content'):
+        if isinstance(latest_message.content, list):
+            # 处理多模态内容
+            for content_item in latest_message.content:
+                if isinstance(content_item, dict) and content_item.get('type') == 'text':
+                    user_query = content_item.get('text', '')
+                    break
+        elif isinstance(latest_message.content, str):
+            user_query = latest_message.content
+
+    # 如果是来自 planner 的消息，解析 JSON 获取真实的用户需求
+    if hasattr(latest_message, 'name') and latest_message.name == 'planner':
+        try:
+            import json
+            plan_data = json.loads(latest_message.content)
+            # 构造更清晰的用户查询
+            title = plan_data.get('title', '')
+            steps = plan_data.get('steps', [])
+            if steps and len(steps) > 0:
+                description = steps[0].get('description', '')
+                user_query = f"{title}: {description}"
+            else:
+                user_query = title
+        except:
+            # 如果解析失败，查找原始用户消息
+            for msg in reversed(messages[:-1]):
+                if not hasattr(msg, 'name') or msg.name not in ['planner', 'supervisor']:
+                    if hasattr(msg, 'content'):
+                        if isinstance(msg.content, list):
+                            for content_item in msg.content:
+                                if isinstance(content_item, dict) and content_item.get('type') == 'text':
+                                    user_query = content_item.get('text', '')
+                                    break
+                        elif isinstance(msg.content, str):
+                            user_query = msg.content
+                    break
+
+    if not user_query:
+        response_content = "Could not extract user query from messages"
+        return Command(
+            update={
+                "messages": [
+                    HumanMessage(
+                        content=RESPONSE_FORMAT.format("desktop", response_content),
+                        name="desktop",
+                    )
+                ]
+            },
+            goto="supervisor",
+        )
+
+    logger.debug(f"Extracted user query: {user_query}")
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Desktop agent attempt {attempt + 1}")
+
+            # 关键修复：直接传递字符串而不是字典
+            result = desktop_agent.invoke(user_query)  # 传递字符串，不是字典
+            logger.info("Desktop agent completed task")
+
+            # 处理结果
+            if hasattr(result, 'content') and result.content:
+                response_content = result.content
+            elif hasattr(result, 'error') and result.error:
+                response_content = f"Desktop agent encountered an error: {result.error}"
+            else:
+                response_content = "Desktop agent completed without specific output"
+            break
+
+        except Exception as e:
+            logger.exception(f"desktop_agent.invoke failed on attempt {attempt + 1}: {e}")
+            if attempt < max_retries - 1:
+                import time
+                time.sleep(2)
+                continue
+            else:
+                response_content = f"Desktop agent encountered an error after {max_retries} attempts: {str(e)}"
+
+    return Command(
+        update={
+            "messages": [
+                HumanMessage(
+                    content=RESPONSE_FORMAT.format("desktop", response_content),
+                    name="desktop",
+                )
+            ]
+        },
+        goto="supervisor",
+    )
 

@@ -9,7 +9,8 @@ from .nodes import (
     browser_node,
     reporter_node,
     planner_node,
-    life_tools_node
+    life_tools_node,
+    desktop_node
 
 )
 
@@ -26,4 +27,5 @@ def build_graph():
     builder.add_node("browser", browser_node)
     builder.add_node("reporter", reporter_node)
     builder.add_node("life_tools", life_tools_node)  # 更新节点名
+    builder.add_node("desktop",desktop_node)
     return builder.compile()

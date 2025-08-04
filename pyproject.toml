@@ -3,11 +3,11 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "lang-manus"
+name = "Bupt-manus"
 version = "0.1.0"
-description = "Lang-Manus project"
+description = "Bupt-Manus project"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
     "httpx>=0.28.1",
     "langchain-community>=0.3.19",
@@ -29,7 +29,8 @@ dependencies = [
     "mcp>=1.11.0",
     "sqlalchemy>=2.0.38",
     "ReportLab>=4.4.3",
-    "pdfkit>=1.0.0"
+    "pdfkit>=1.0.0",
+    "windows-use>=0.3.5",
 ]
 
 [project.optional-dependencies]

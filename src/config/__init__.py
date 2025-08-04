@@ -21,7 +21,7 @@ AMAP_API_KEY
 from .tools import TAVILY_MAX_RESULTS
 
 # Team configuration
-TEAM_MEMBERS = ["researcher", "coder", "browser", "reporter","life_tools"]
+TEAM_MEMBERS = ["researcher", "coder", "browser", "reporter","life_tools","desktop"]
 
 __all__ = [
     # Reasoning LLM

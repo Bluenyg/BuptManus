@@ -1,38 +1,58 @@
 import logging
 import subprocess
+import platform
 from typing import Annotated
 from langchain_core.tools import tool
 from .decorators import log_io
 
-# Initialize logger
+# 初始化日志器
 logger = logging.getLogger(__name__)
 
 
 @tool
 @log_io
 def bash_tool(
-    cmd: Annotated[str, "The bash command to be executed."],
+        cmd: Annotated[str, "The bash command to be executed."],
 ):
     """Use this to execute bash command and do necessary operations."""
-    logger.info(f"Executing Bash Command: {cmd}")
+    # 1. 自动生成虚拟环境激活命令（跨平台适配）
+    system = platform.system()
+    activate_cmd = ""
+
+    if system in ["Linux", "Darwin"]:  # Linux/macOS
+        # 假设虚拟环境目录为项目根目录下的 .venv
+        activate_cmd = "source .venv/bin/activate && "
+    elif system == "Windows":  # Windows（PowerShell）
+        activate_cmd = ".venv\\Scripts\\Activate.ps1; "
+    else:
+        logger.warning(f"Unsupported OS: {system}, skip virtualenv activation")
+        activate_cmd = ""
+
+    # 2. 拼接激活命令和用户命令
+    full_cmd = f"{activate_cmd}{cmd}"
+    logger.info(f"Executing Bash Command (with venv activation): {full_cmd}")
+
     try:
-        # Execute the command and capture output
+        # 3. 执行命令（捕获 stdout/stderr用于返回结果）
         result = subprocess.run(
-            cmd, shell=True, check=True, text=True, capture_output=True
+            full_cmd,
+            shell=True,
+            check=True,
+            text=True,
+            capture_output=True  # 捕获标准输出和错误
         )
-        # Return stdout as the result
-        return result.stdout
+        return f"Command executed successfully:\n{result.stdout}"
+
     except subprocess.CalledProcessError as e:
-        # If command fails, return error information
-        error_message = f"Command failed with exit code {e.returncode}.\nStdout: {e.stdout}\nStderr: {e.stderr}"
-        logger.error(error_message)
-        return error_message
+        error_msg = (
+            f"Command failed with exit code {e.returncode}\n"
+            f"Error output: {e.stderr}\n"
+            f"Command: {full_cmd}"
+        )
+        logger.error(error_msg)
+        return error_msg
+
     except Exception as e:
-        # Catch any other exceptions
-        error_message = f"Error executing command: {str(e)}"
-        logger.error(error_message)
-        return error_message
-
-
-if __name__ == "__main__":
-    print(bash_tool.invoke("ls -all"))
+        error_msg = f"Unexpected error during command execution: {str(e)}\nCommand: {full_cmd}"
+        logger.error(error_msg)
+        return error_msg
