@@ -107,7 +107,8 @@ def get_desktop_agent():
                     api_key="sk-c7693f59328161da43dbd2b97c5ef843ca4bf246ead126f9",
                     base_url="https://api.chatnio.net/v1"
                 )
-                _desktop_agent_instance = Agent(llm=llm)
+                _desktop_agent_instance = Agent(llm=llm,
+                                                browser='chrome')
                 logger.info("Desktop agent created with default config")
             except Exception as e:
                 logger.error(f"Failed to create desktop agent: {e}")
