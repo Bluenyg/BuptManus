@@ -22,6 +22,7 @@ BUPTManus 是一个基于多智能体的 AI 自动化框架，它建立在开源
     - [Docker 部署(**选用:无法自动化本地浏览器或者对文件系统进行操作**)](#docker-部署)
     - [配置](#配置)
 - [后端服务器](#后端服务器)
+
 - [前端网页界面](#前端网页界面)
 - [开发](#开发)
 - [贡献](#贡献)
@@ -60,8 +61,58 @@ playwright install chromium
 
 # 验证安装
 playwright --version
+```
 
-# 运行项目
+### Desktop Agent 配置（可选）
+
+如需使用桌面自动化功能，请按照以下步骤配置：
+
+#### 1. 安装 PostgreSQL
+
+**Windows:**
+- 从 [PostgreSQL 官网](https://www.postgresql.org/download/windows/) 下载并安装 PostgreSQL
+- 安装过程中记住设置的密码
+
+**macOS (使用 Homebrew):**
+```bash
+brew install postgresql
+brew services start postgresql
+```
+
+**Ubuntu/Debian:**
+```bash
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+sudo systemctl start postgresql
+```
+
+#### 2. 配置 Desktop Agent
+
+```bash
+# 进入 Desktop Agent 后端目录
+cd src/desktop_agent/backend
+
+# 创建环境配置文件并编辑数据库密码
+# 编辑 .env 文件，设置 DB_PASSWORD 为您的 PostgreSQL 密码
+# DB_HOST=localhost, DB_PORT=5432, DB_DATABASE=postgres, DB_USERNAME=postgres
+
+# 初始化数据库
+python init_db.py
+
+# 创建默认用户（请保存生成的令牌）
+python create_default_user.py
+
+# 启动 Desktop Agent 后端
+uvicorn main:app --reload --host 0.0.0.0 --port 8001
+
+# 返回项目根目录
+cd ../../..
+```
+
+### 运行项目
+
+```bash
+# 运行主项目
 uv run main.py
 ```
 
@@ -81,7 +132,7 @@ BUPTManus 实现了一个分层的多智能体系统，其中有一个主管智�
 6. **浏览器（Browser）**：执行网页浏览和信息检索
 7. **汇报员（Reporter）**：生成工作流结果的报告和总结
 8. **日常工具（Life-Tool）**：通过调用 Mcp-Server 中的工具提供天气查询、快递追踪等生活服务，将技术接口转换为自然语言回答,拓展性强
-9. **桌面控制管理(Desktop)**：通过集成Windows-use工具进行桌面自动化和文件管理
+9. **桌面控制管理(Desktop)**：通过连接Desktop agent端点进行桌面自动化和文件管理
 
 ## 功能特性
 

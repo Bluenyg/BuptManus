@@ -2,11 +2,18 @@ import platform
 import pyautogui
 import psutil
 import os
+import pythoncom
 
 if platform.system() == "Windows":
     import win32gui
     import win32process
 
+def initialize_com_if_needed():
+    """在线程中初始化COM，避免多线程COM错误"""
+    try:
+        pythoncom.CoInitialize()
+    except:
+        pass
 # Windows: UIA
 try:
     import uiautomation as auto
@@ -35,13 +42,16 @@ except ImportError:
 import platform
 
 def get_os():
+
     """Returns the OS name in the format the agent expects."""
+    initialize_com_if_needed()
     system_name = platform.system().lower()
     if system_name == "darwin":
         return "MacOS"
     return platform.system()
 
 def get_bounding_rect(x, y, width, height):
+    initialize_com_if_needed()
     screen_w, screen_h = pyautogui.size()
     scale_x = 1280 / screen_w
     scale_y = 720 / screen_h
@@ -60,6 +70,7 @@ def get_bounding_rect(x, y, width, height):
 
 
 def get_running_apps():
+    initialize_com_if_needed()
     system = platform.system()
     result = []
 
@@ -147,7 +158,7 @@ def extract_desktop_icons_windows():
     """
     Enumerate desktop icons via the Explorer ListView (SysListView32).
     """
-
+    initialize_com_if_needed()
     if os.getenv('NEURALAGENT_BACKGROUND_MODE') == 'true':
         return []
 
@@ -183,6 +194,7 @@ def extract_ui_elements_windows():
     """
     Extract UI Automation interactive elements from the active foreground window.
     """
+    initialize_com_if_needed()
     if not auto:
         return []
     
@@ -224,6 +236,7 @@ def extract_ui_elements_macos():
     """
     Extract macOS Accessibility interactive elements globally.
     """
+    initialize_com_if_needed()
     if not AXUIElementCreateSystemWide:
         return []
 
@@ -265,6 +278,7 @@ def extract_ui_elements_linux():
     """
     Extract AT-SPI interactive elements on Linux desktop.
     """
+    initialize_com_if_needed()
     if not pyatspi:
         return []
 
@@ -299,6 +313,7 @@ def detect_possible_webview(bounding_boxes, screen_w, screen_h, threshold=0.5):
     Detect if a large portion of the screen is uncovered, suggesting a WebView.
     Returns a placeholder element if so.
     """
+    initialize_com_if_needed()
     total_area = screen_w * screen_h
     covered = 0
 
@@ -331,6 +346,7 @@ def extract_interactive_elements():
     or fallback native on macOS/Linux.
     Returns a list of dicts: {id, type, label, bounding_box}.
     """
+    initialize_com_if_needed()
     system = platform.system()
     raw = []
 

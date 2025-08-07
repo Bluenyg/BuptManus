@@ -184,12 +184,20 @@ async def run_agent_workflow(
                     },
                 }
             elif kind == "on_tool_end" and node in TEAM_MEMBERS:
+                # 安全处理tool_result
+                tool_result = ""
+                if data.get("output"):
+                    if hasattr(data["output"], 'content'):
+                        tool_result = data["output"].content
+                    else:
+                        tool_result = str(data["output"])
+
                 ydata = {
                     "event": "tool_call_result",
                     "data": {
                         "tool_call_id": f"{workflow_id}_{node}_{name}_{run_id}",
                         "tool_name": name,
-                        "tool_result": data["output"].content if data.get("output") else "",
+                        "tool_result": tool_result,
                     },
                 }
             else:
