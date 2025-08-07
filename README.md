@@ -69,7 +69,7 @@ uv run main.py
 
 BUPTManus implements a hierarchical multi-agent system with a supervisor agent coordinating specialized agents to complete complex tasks:
 
-![BuptManus Architecture](assets/liuchengtu.png)
+![BuptManus Architecture]((assets/liuchengtu.png))
 
 The system consists of the following agents working collaboratively:
 
@@ -81,7 +81,7 @@ The system consists of the following agents working collaboratively:
 6. **Browser**: Executes web browsing and information retrieval
 7. **Reporter**: Generates reports and summaries of workflow results
 8. **Life-Tool**: Provides life services such as weather queries and package tracking by calling tools in Mcp-Server, converting technical interfaces to natural language responses with strong extensibility
-
+9. **Desktop**: Through integration with Windows-use tools for desktop automation and file management.
 ## Features
 
 ### Core Capabilities

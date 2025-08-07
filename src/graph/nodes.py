@@ -441,116 +441,134 @@ def life_tools_node(state: State) -> Command[Literal["supervisor"]]:
     )
 
 
-def desktop_node(state: State) -> Command[Literal["supervisor"]]:
-    """Node for the desktop agent that handles Windows desktop automation."""
-    logger.info("Desktop agent starting task")
-    desktop_agent=get_desktop_agent()
-    # 从状态中提取最新的用户消息
+def get_user_query_from_state(state):
+    """从状态中提取纯净的用户查询"""
     messages = state.get("messages", [])
     if not messages:
-        response_content = "No messages found in state"
-        return Command(
-            update={
-                "messages": [
-                    HumanMessage(
-                        content=RESPONSE_FORMAT.format("desktop", response_content),
-                        name="desktop",
-                    )
-                ]
-            },
-            goto="supervisor",
-        )
+        return "请提供具体任务"
 
-    # 获取最新的用户请求
-    latest_message = messages[-1]
-    user_query = ""
+    # 获取最新的用户消息
+    for msg in reversed(messages):
+        if hasattr(msg, 'content'):
+            content = msg.content
 
-    # 处理不同类型的消息格式
-    if hasattr(latest_message, 'content'):
-        if isinstance(latest_message.content, list):
-            # 处理多模态内容
-            for content_item in latest_message.content:
-                if isinstance(content_item, dict) and content_item.get('type') == 'text':
-                    user_query = content_item.get('text', '')
-                    break
-        elif isinstance(latest_message.content, str):
-            user_query = latest_message.content
+            # 如果是列表格式
+            if isinstance(content, list):
+                for content_item in content:
+                    if isinstance(content_item, dict) and content_item.get('type') == 'text':
+                        text = content_item.get('text', '').strip()
+                        # 提取纯净的用户查询
+                        return extract_pure_query(text)
 
-    # 如果是来自 planner 的消息，解析 JSON 获取真实的用户需求
-    if hasattr(latest_message, 'name') and latest_message.name == 'planner':
-        try:
-            import json
-            plan_data = json.loads(latest_message.content)
-            # 构造更清晰的用户查询
-            title = plan_data.get('title', '')
-            steps = plan_data.get('steps', [])
-            if steps and len(steps) > 0:
-                description = steps[0].get('description', '')
-                user_query = f"{title}: {description}"
-            else:
-                user_query = title
-        except:
-            # 如果解析失败，查找原始用户消息
-            for msg in reversed(messages[:-1]):
-                if not hasattr(msg, 'name') or msg.name not in ['planner', 'supervisor']:
-                    if hasattr(msg, 'content'):
-                        if isinstance(msg.content, list):
-                            for content_item in msg.content:
-                                if isinstance(content_item, dict) and content_item.get('type') == 'text':
-                                    user_query = content_item.get('text', '')
-                                    break
-                        elif isinstance(msg.content, str):
-                            user_query = msg.content
-                    break
+            # 如果是字符串格式
+            elif isinstance(content, str):
+                return extract_pure_query(content.strip())
 
-    if not user_query:
-        response_content = "Could not extract user query from messages"
-        return Command(
-            update={
-                "messages": [
-                    HumanMessage(
-                        content=RESPONSE_FORMAT.format("desktop", response_content),
-                        name="desktop",
-                    )
-                ]
-            },
-            goto="supervisor",
-        )
+    return "请提供具体任务"
 
-    logger.debug(f"Extracted user query: {user_query}")
 
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            logger.info(f"Desktop agent attempt {attempt + 1}")
+def extract_pure_query(text):
+    """从复杂文本中提取纯净的用户查询"""
+    try:
+        # 尝试解析JSON
+        import json
+        data = json.loads(text)
 
-            # 关键修复：直接传递字符串而不是字典
-            result = desktop_agent.invoke(user_query)  # 传递字符串，不是字典
-            logger.info("Desktop agent completed task")
+        # 从JSON中提取简单查询
+        if isinstance(data, dict):
+            # 优先级：title > thought > steps中的description
+            if 'title' in data:
+                title = data['title'].strip()
+                if title and title != "":
+                    return title
 
-            # 处理结果
-            if hasattr(result, 'content') and result.content:
-                response_content = result.content
-            elif hasattr(result, 'error') and result.error:
-                response_content = f"Desktop agent encountered an error: {result.error}"
-            else:
-                response_content = "Desktop agent completed without specific output"
-            break
+            if 'thought' in data:
+                thought = data['thought'].strip()
+                # 提取思考中的核心动作
+                if '打开' in thought:
+                    # 提取"打开XX"的部分
+                    import re
+                    match = re.search(r'打开(.+?)(?:应用|程序|软件|。|$)', thought)
+                    if match:
+                        app_name = match.group(1).strip()
+                        return f"打开{app_name}"
 
-        except Exception as e:
-            logger.exception(f"desktop_agent.invoke failed on attempt {attempt + 1}: {e}")
-            if attempt < max_retries - 1:
-                import time
-                time.sleep(2)
-                continue
-            else:
-                response_content = f"Desktop agent encountered an error after {max_retries} attempts: {str(e)}"
+            if 'steps' in data and isinstance(data['steps'], list):
+                for step in data['steps']:
+                    if isinstance(step, dict) and 'title' in step:
+                        return step['title'].strip()
 
+    except (json.JSONDecodeError, Exception):
+        # 如果不是JSON，直接处理文本
+        pass
+
+    # 如果解析失败，尝试从文本中提取简单指令
+    text = text.strip()
+
+    # 提取简单的动作指令
+    import re
+
+    # 匹配 "打开XX" 模式
+    match = re.search(r'打开(.+?)(?:应用|程序|软件|。|$)', text)
+    if match:
+        app_name = match.group(1).strip()
+        return f"打开{app_name}"
+
+    # 匹配其他常见模式
+    action_patterns = [
+        r'(启动.+?)(?:应用|程序|软件|。|$)',
+        r'(运行.+?)(?:应用|程序|软件|。|$)',
+        r'(打开.+?)(?:。|$)',
+    ]
+
+    for pattern in action_patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1).strip()
+
+    # 如果都匹配不到，返回原文本的前50个字符
+    return text[:50] if len(text) > 50 else text
+
+from src.tools.desktop_interaction import remote_desktop_agent
+def desktop_node(state: State) -> Command[Literal["supervisor"]]:
+    """
+    执行桌面自动化任务的节点。
+    它从 supervisor 的计划中提取任务描述，然后调用 remote_desktop_agent 工具。
+    """
+    logger.info("Desktop agent node starting task")
+
+    # 从状态中提取任务描述。
+    # 这里的逻辑是假设 supervisor 传递的任务在最新的消息中。
+    # 这是一个比之前更健壮的假设，因为 supervisor 应该明确地委托任务。
+    # 我们从 `full_plan` 中获取结构化信息，而不是解析自由文本。
+    try:
+        plan = json.loads(state["full_plan"])
+        # 找到分配给 "desktop" 的第一个未完成的步骤
+        task_description = "没有找到分配给桌面的具体任务。"
+        for step in plan.get("steps", []):
+            if step.get("agent_name", "").lower() == "desktop":
+                task_description = step.get("description", task_description)
+                # 假设我们只执行第一个找到的任务
+                break
+    except (json.JSONDecodeError, KeyError):
+        logger.warning("无法从 full_plan 解析任务，将回退到使用最新的消息。")
+        task_description = state["messages"][-1].content
+
+    logger.info(f"Task for desktop agent: '{task_description}'")
+
+    # 直接调用我们的工具
+    # 工具的内部逻辑处理了所有API调用、循环和执行
+    observation = remote_desktop_agent.invoke({"task_description": task_description})
+
+    logger.info("Desktop agent node completed task")
+    logger.debug(f"Desktop agent tool observation: {observation}")
+
+    # 将工具的执行结果作为一条新消息返回给 supervisor
     return Command(
         update={
             "messages": [
                 HumanMessage(
-                    content=RESPONSE_FORMAT.format("desktop", response_content),
+                    content=RESPONSE_FORMAT.format("desktop", observation),
                     name="desktop",
                 )
             ]

@@ -30,7 +30,19 @@ dependencies = [
     "sqlalchemy>=2.0.38",
     "ReportLab>=4.4.3",
     "pdfkit>=1.0.0",
-    "windows-use>=0.3.5",
+
+    # --- Desktop Agent Dependencies Start ---
+    "requests",         # For making HTTP requests in the agent
+    "Pillow",           # For image processing (screenshots)
+    "pyautogui",        # For GUI automation (mouse, keyboard)
+    "mss",              # For taking screenshots
+    "pyperclip",        # For clipboard access
+    "websockets",       # Likely for real-time communication
+    "psutil",           # For system process information
+
+    # Platform-specific dependencies for Windows
+    "pywin32; sys_platform == 'win32'",
+    "uiautomation; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
