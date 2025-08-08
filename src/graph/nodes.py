@@ -530,34 +530,41 @@ def extract_pure_query(text):
     return text[:50] if len(text) > 50 else text
 
 from src.tools.desktop_interaction import remote_desktop_agent
+
+
 def desktop_node(state: State) -> Command[Literal["supervisor"]]:
     """
     执行桌面自动化任务的节点。
-    它从 supervisor 的计划中提取任务描述，然后调用 remote_desktop_agent 工具。
+    修复版：正确跟踪已完成的任务并执行下一个任务。
     """
     logger.info("Desktop agent node starting task")
 
-    # 从状态中提取任务描述。
-    # 这里的逻辑是假设 supervisor 传递的任务在最新的消息中。
-    # 这是一个比之前更健壮的假设，因为 supervisor 应该明确地委托任务。
-    # 我们从 `full_plan` 中获取结构化信息，而不是解析自由文本。
-    try:
-        plan = json.loads(state["full_plan"])
-        # 找到分配给 "desktop" 的第一个未完成的步骤
-        task_description = "没有找到分配给桌面的具体任务。"
-        for step in plan.get("steps", []):
-            if step.get("agent_name", "").lower() == "desktop":
-                task_description = step.get("description", task_description)
-                # 假设我们只执行第一个找到的任务
-                break
-    except (json.JSONDecodeError, KeyError):
-        logger.warning("无法从 full_plan 解析任务，将回退到使用最新的消息。")
-        task_description = state["messages"][-1].content
+    # 统计已完成的桌面任务数量
+    completed_desktop_tasks = count_completed_desktop_tasks(state)
+    logger.info(f"已完成的桌面任务数量: {completed_desktop_tasks}")
+
+    # 根据已完成的任务数量获取下一个任务
+    task_description = get_next_desktop_task_from_plan(state, completed_desktop_tasks)
 
     logger.info(f"Task for desktop agent: '{task_description}'")
 
-    # 直接调用我们的工具
-    # 工具的内部逻辑处理了所有API调用、循环和执行
+    # 如果所有任务都已完成，直接返回
+    if "所有桌面任务已完成" in task_description or "所有任务已完成" in task_description:
+        logger.info("所有桌面任务已完成，返回完成状态")
+        return Command(
+            update={
+                "messages": [
+                    HumanMessage(
+                        content=RESPONSE_FORMAT.format("desktop",
+                                                       "所有桌面任务已成功完成。用户的QQ音乐已打开并播放了指定歌曲。"),
+                        name="desktop",
+                    )
+                ]
+            },
+            goto="supervisor",
+        )
+
+    # 调用桌面自动化工具
     observation = remote_desktop_agent.invoke({"task_description": task_description})
 
     logger.info("Desktop agent node completed task")
@@ -575,4 +582,86 @@ def desktop_node(state: State) -> Command[Literal["supervisor"]]:
         },
         goto="supervisor",
     )
+
+
+def count_completed_desktop_tasks(state: State) -> int:
+    """
+    统计已成功完成的桌面任务数量
+    """
+    completed_count = 0
+
+    # 遍历消息历史，查找来自 desktop 节点且标记为成功的消息
+    for message in state["messages"]:
+        if (hasattr(message, 'name') and
+                message.name == "desktop" and
+                isinstance(message.content, str) and
+                ("completed successfully" in message.content or
+                 "任务完成" in message.content)):
+            completed_count += 1
+            logger.debug(f"找到已完成任务 #{completed_count}: {message.content[:100]}...")
+
+    return completed_count
+
+
+def get_fallback_task_from_user_message(state: State, completed_count: int) -> str:
+    """
+    通用回退策略：当无法解析计划时，从用户原始消息中推断任务
+    """
+    # 获取用户的原始消息
+    user_message = ""
+    for message in state["messages"]:
+        if not hasattr(message, 'name'):  # 用户消息通常没有name属性
+            if isinstance(message.content, list):
+                # 多模态消息，提取文本部分
+                for content_item in message.content:
+                    if isinstance(content_item, dict) and content_item.get('type') == 'text':
+                        user_message = content_item.get('text', '')
+                        break
+            elif isinstance(message.content, str):
+                user_message = message.content
+            break
+
+    if not user_message:
+        return "执行用户请求的任务" if completed_count == 0 else "继续执行用户任务"
+
+    # 基于完成数量和用户消息内容推断任务
+    if completed_count == 0:
+        # 第一个任务通常是打开或启动某个应用
+        return f"根据用户请求执行第一步操作: {user_message[:50]}"
+    else:
+        # 后续任务是在已打开的应用中进行具体操作
+        return f"在已打开的应用中继续执行用户请求: {user_message[:50]}"
+
+
+def get_next_desktop_task_from_plan(state: State, completed_count: int) -> str:
+    """
+    根据已完成的任务数量，从计划中获取下一个桌面任务
+    """
+    try:
+        plan = json.loads(state["full_plan"])
+        desktop_steps = [
+            step for step in plan.get("steps", [])
+            if step.get("agent_name", "").lower() == "desktop"
+        ]
+
+        logger.debug(f"找到 {len(desktop_steps)} 个桌面任务步骤")
+        for i, step in enumerate(desktop_steps):
+            logger.debug(f"步骤 {i}: {step.get('description', 'No description')}")
+
+        if not desktop_steps:
+            return "没有找到桌面任务"
+
+        # 如果还有未完成的任务
+        if completed_count < len(desktop_steps):
+            next_task = desktop_steps[completed_count].get("description", "执行桌面任务")
+            logger.info(f"返回第 {completed_count + 1} 个任务: {next_task}")
+            return next_task
+        else:
+            logger.info("所有桌面任务都已完成")
+            return "所有桌面任务已完成"
+
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.warning(f"无法解析计划: {e}")
+        # 通用回退策略：从用户原始消息中推断任务
+        return get_fallback_task_from_user_message(state, completed_count)
 

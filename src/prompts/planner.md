@@ -88,3 +88,4 @@ interface Plan {
 - Always use `coder` to get stock information via `yfinance`.
 - Always use `reporter` to present your final report. Reporter can only be used once as the last step.
 - Always Use the same language as the user.
+- Always if it is identified as a desktop task, there is no need to decompose the task; just hand the task over to the `desktop` .
