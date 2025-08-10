@@ -96,6 +96,15 @@ cd src/desktop_agent/backend
 # 编辑 .env 文件，设置 DB_PASSWORD 为您的 PostgreSQL 密码
 # DB_HOST=localhost, DB_PORT=5432, DB_DATABASE=postgres, DB_USERNAME=postgres
 
+#配置desktop agent的后端环境
+python -m venv venv
+# Activate:
+source venv/bin/activate  # macOS/Linux
+venv\Scripts\activate     # Windows
+
+#下载desktop的依赖
+pip install -r requirements.txt
+
 # 初始化数据库
 python init_db.py
 

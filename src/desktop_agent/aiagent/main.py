@@ -18,7 +18,6 @@ import asyncio
 import logging
 from src.desktop_agent.aiagent import ui_extraction
 
-
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 if hasattr(sys.stdout, "reconfigure"):
@@ -35,6 +34,7 @@ logging.basicConfig(
 )
 
 screenshot_requested = False
+
 
 def type_unicode_smart(text: str, delay: float = 0.05) -> None:
     try:
@@ -62,43 +62,316 @@ def type_unicode_smart(text: str, delay: float = 0.05) -> None:
 
     pyperclip.copy(old_clip)
 
+
 def windows_direct_app_launch(app_name):
+    """修复后的Windows应用启动函数"""
     try:
-        subprocess.Popen(f'start "" "{app_name}"', shell=True, check=True)
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"[❌] Failed to launch with 'start': {e}")
-        return False
+        # 移除 check=True 参数，因为 Popen 不接受这个参数
+        process = subprocess.Popen(f'start "" "{app_name}"', shell=True)
+        # 等待一小段时间来检查进程是否成功启动
+        time.sleep(1)
+        # 检查进程是否还在运行（如果立即退出可能表示失败）
+        if process.poll() is None or process.returncode == 0:
+            return True
+        else:
+            print(f"[❌] Process exited with code: {process.returncode}")
+            return False
     except Exception as e:
         print(f"[❌] Unexpected error with 'start': {e}")
         return False
 
+
 def launch_application(app_name):
+    """改进的应用启动函数，支持中英文应用名称映射"""
     os_name = platform.system().lower()
+
+    # 中英文应用名称映射
+    # 应用名称映射字典
+    APP_NAME_MAPPING = {
+        # 社交通讯类
+        '微信': ['WeChat', 'Weixin', '微信', 'wechat'],
+        'weixin': ['WeChat', 'Weixin', '微信', 'wechat'],
+        'wechat': ['WeChat', 'Weixin', '微信', 'wechat'],
+
+        'qq': ['QQ', 'qq', 'TencentQQ'],
+        'QQ': ['QQ', 'qq', 'TencentQQ'],
+
+        '钉钉': ['DingTalk', 'dingtalk', '钉钉'],
+        'dingtalk': ['DingTalk', 'dingtalk', '钉钉'],
+
+        # 音乐播放类
+        'qq音乐': ['QQMusic', 'qqmusic', 'QQ音乐', 'Tencent QQMusic'],
+        'qqmusic': ['QQMusic', 'qqmusic', 'QQ音乐', 'Tencent QQMusic'],
+        'qq音乐应用程序': ['QQMusic', 'qqmusic', 'QQ音乐', 'Tencent QQMusic'],
+
+        '网易云音乐': ['NetEase CloudMusic', 'cloudmusic', '网易云音乐'],
+        '网易云': ['NetEase CloudMusic', 'cloudmusic', '网易云音乐'],
+        'cloudmusic': ['NetEase CloudMusic', 'cloudmusic', '网易云音乐'],
+
+        '酷狗音乐': ['KuGou', 'kugou', '酷狗音乐'],
+        '酷我音乐': ['KuWo', 'kuwo', '酷我音乐'],
+
+        # 浏览器类
+        '谷歌浏览器': ['chrome', 'Chrome', 'Google Chrome'],
+        '谷歌': ['chrome', 'Chrome', 'Google Chrome'],
+        'chrome': ['chrome', 'Chrome', 'Google Chrome'],
+
+        '火狐浏览器': ['firefox', 'Firefox', 'Mozilla Firefox'],
+        'firefox': ['firefox', 'Firefox', 'Mozilla Firefox'],
+
+        '微软浏览器': ['msedge', 'Edge', 'Microsoft Edge'],
+        'edge': ['msedge', 'Edge', 'Microsoft Edge'],
+        'msedge': ['msedge', 'Edge', 'Microsoft Edge'],
+
+        # 办公软件类
+        '记事本': ['notepad', 'Notepad'],
+        'notepad': ['notepad', 'Notepad'],
+
+        '计算器': ['calc', 'Calculator'],
+        'calc': ['calc', 'Calculator'],
+
+        'word': ['WINWORD', 'Microsoft Word', 'Word'],
+        'Word': ['WINWORD', 'Microsoft Word', 'Word'],
+        '文字处理': ['WINWORD', 'Microsoft Word', 'Word'],
+
+        'excel': ['EXCEL', 'Microsoft Excel', 'Excel'],
+        'Excel': ['EXCEL', 'Microsoft Excel', 'Excel'],
+        '表格处理': ['EXCEL', 'Microsoft Excel', 'Excel'],
+
+        'powerpoint': ['POWERPNT', 'Microsoft PowerPoint', 'PowerPoint'],
+        'PowerPoint': ['POWERPNT', 'Microsoft PowerPoint', 'PowerPoint'],
+        '演示文稿': ['POWERPNT', 'Microsoft PowerPoint', 'PowerPoint'],
+
+        # 开发工具类
+        'vscode': ['Code', 'Visual Studio Code', 'code'],
+        'vs code': ['Code', 'Visual Studio Code', 'code'],
+        'visual studio code': ['Code', 'Visual Studio Code', 'code'],
+
+        'pycharm': ['PyCharm', 'pycharm64', 'jetbrains-pycharm'],
+        'PyCharm': ['PyCharm', 'pycharm64', 'jetbrains-pycharm'],
+
+        'git bash': ['sh', 'Git Bash', 'bash'],
+        'cmd': ['cmd', 'Command Prompt', '命令提示符'],
+        '命令提示符': ['cmd', 'Command Prompt', '命令提示符'],
+
+        # 视频播放类
+        'vlc': ['vlc', 'VLC media player', 'VLC'],
+        'VLC': ['vlc', 'VLC media player', 'VLC'],
+
+        '爱奇艺': ['iQIYI', 'iqiyi', '爱奇艺'],
+        'iqiyi': ['iQIYI', 'iqiyi', '爱奇艺'],
+
+        '腾讯视频': ['QQLive', 'qqlivehd', '腾讯视频'],
+        'qqlive': ['QQLive', 'qqlivehd', '腾讯视频'],
+
+        # 图像处理类
+        'photoshop': ['Photoshop', 'photoshop', 'Adobe Photoshop'],
+        'ps': ['Photoshop', 'photoshop', 'Adobe Photoshop'],
+
+        '画图': ['mspaint', 'Paint', '画图'],
+        'paint': ['mspaint', 'Paint', '画图'],
+
+        # 系统工具类
+        '任务管理器': ['taskmgr', 'Task Manager', '任务管理器'],
+        'taskmgr': ['taskmgr', 'Task Manager', '任务管理器'],
+
+        '控制面板': ['control', 'Control Panel', '控制面板'],
+        'control': ['control', 'Control Panel', '控制面板'],
+
+        '文件资源管理器': ['explorer', 'File Explorer', '资源管理器'],
+        '资源管理器': ['explorer', 'File Explorer', '资源管理器'],
+        'explorer': ['explorer', 'File Explorer', '资源管理器'],
+
+        # 下载工具类
+        '迅雷': ['Thunder', 'thunder', '迅雷'],
+        'thunder': ['Thunder', 'thunder', '迅雷'],
+
+        # 游戏平台类
+        'steam': ['Steam', 'steam'],
+        'Steam': ['Steam', 'steam'],
+
+        '腾讯游戏': ['WeGame', 'wegame', '腾讯游戏'],
+        'wegame': ['WeGame', 'wegame', '腾讯游戏'],
+    }
+
+    # 获取可能的应用名称列表
+    possible_names = [app_name.lower()]
+    for key, names in APP_NAME_MAPPING.items():
+        if key in app_name.lower() or app_name.lower() in key:
+            possible_names.extend([name.lower() for name in names])
+
+    # 去重并保持顺序
+    possible_names = list(dict.fromkeys(possible_names))
+
+    print(f"[INFO] 尝试启动应用: {app_name}, 可能的名称: {possible_names}")
+
     try:
         if os_name == 'windows':
-            if windows_direct_app_launch(app_name):
-                return
+            # 尝试每个可能的应用名称
+            for name in possible_names:
+                print(f"[INFO] 尝试启动: {name}")
+                if windows_direct_app_launch(name):
+                    print(f"[✅] 成功启动: {name}")
+                    return
 
-            ps_command = f"powershell -Command \"Get-StartApps | Where-Object {{$_.Name -like '*{app_name}*'}} | Select-Object -First 1 -ExpandProperty AppId\""
-            result = subprocess.run(ps_command, capture_output=True, text=True, shell=True)
-            app_id = result.stdout.strip()
-            if app_id:
-                subprocess.Popen(f'explorer.exe shell:AppsFolder\\{app_id}', shell=True)
-                return
-            print("❌ App not found via UWP or direct command.")
+                # 尝试通过PowerShell查找UWP应用
+                try:
+                    ps_command = f"powershell -Command \"Get-StartApps | Where-Object {{$_.Name -like '*{name}*'}} | Select-Object -First 1 -ExpandProperty AppId\""
+                    result = subprocess.run(ps_command, capture_output=True, text=True, shell=True, timeout=10)
+                    app_id = result.stdout.strip()
+                    if app_id:
+                        subprocess.Popen(f'explorer.exe shell:AppsFolder\\{app_id}', shell=True)
+                        print(f"[✅] 通过UWP启动: {name}")
+                        return
+                except subprocess.TimeoutExpired:
+                    print(f"[⚠️] PowerShell查询超时: {name}")
+                except Exception as e:
+                    print(f"[⚠️] PowerShell查询失败: {name}, 错误: {e}")
+
+            print(f"[❌] 所有尝试都失败了: {possible_names}")
 
         elif os_name == 'darwin':
-            subprocess.Popen(["open", "-a", app_name])
+            for name in possible_names:
+                try:
+                    subprocess.Popen(["open", "-a", name])
+                    print(f"[✅] macOS启动成功: {name}")
+                    return
+                except:
+                    continue
 
         elif os_name == 'linux':
-            subprocess.Popen([app_name])
+            for name in possible_names:
+                try:
+                    subprocess.Popen([name])
+                    print(f"[✅] Linux启动成功: {name}")
+                    return
+                except:
+                    continue
 
     except Exception as e:
-        print(f"❌ Could not launch {app_name}: {e}")
+        print(f"❌ 启动应用失败 {app_name}: {e}")
+
 
 def focus_app(app_name):
+    """改进的应用聚焦函数，支持中英文应用名称"""
     os_name = platform.system().lower()
+
+    # 使用相同的名称映射逻辑
+    # 应用名称映射字典
+    APP_NAME_MAPPING = {
+        # 社交通讯类
+        '微信': ['WeChat', 'Weixin', '微信', 'wechat'],
+        'weixin': ['WeChat', 'Weixin', '微信', 'wechat'],
+        'wechat': ['WeChat', 'Weixin', '微信', 'wechat'],
+
+        'qq': ['QQ', 'qq', 'TencentQQ'],
+        'QQ': ['QQ', 'qq', 'TencentQQ'],
+
+        '钉钉': ['DingTalk', 'dingtalk', '钉钉'],
+        'dingtalk': ['DingTalk', 'dingtalk', '钉钉'],
+
+        # 音乐播放类
+        'qq音乐': ['QQMusic', 'qqmusic', 'QQ音乐', 'Tencent QQMusic'],
+        'qqmusic': ['QQMusic', 'qqmusic', 'QQ音乐', 'Tencent QQMusic'],
+        'qq音乐应用程序': ['QQMusic', 'qqmusic', 'QQ音乐', 'Tencent QQMusic'],
+
+        '网易云音乐': ['NetEase CloudMusic', 'cloudmusic', '网易云音乐'],
+        '网易云': ['NetEase CloudMusic', 'cloudmusic', '网易云音乐'],
+        'cloudmusic': ['NetEase CloudMusic', 'cloudmusic', '网易云音乐'],
+
+        '酷狗音乐': ['KuGou', 'kugou', '酷狗音乐'],
+        '酷我音乐': ['KuWo', 'kuwo', '酷我音乐'],
+
+        # 浏览器类
+        '谷歌浏览器': ['chrome', 'Chrome', 'Google Chrome'],
+        '谷歌': ['chrome', 'Chrome', 'Google Chrome'],
+        'chrome': ['chrome', 'Chrome', 'Google Chrome'],
+
+        '火狐浏览器': ['firefox', 'Firefox', 'Mozilla Firefox'],
+        'firefox': ['firefox', 'Firefox', 'Mozilla Firefox'],
+
+        '微软浏览器': ['msedge', 'Edge', 'Microsoft Edge'],
+        'edge': ['msedge', 'Edge', 'Microsoft Edge'],
+        'msedge': ['msedge', 'Edge', 'Microsoft Edge'],
+
+        # 办公软件类
+        '记事本': ['notepad', 'Notepad'],
+        'notepad': ['notepad', 'Notepad'],
+
+        '计算器': ['calc', 'Calculator'],
+        'calc': ['calc', 'Calculator'],
+
+        'word': ['WINWORD', 'Microsoft Word', 'Word'],
+        'Word': ['WINWORD', 'Microsoft Word', 'Word'],
+        '文字处理': ['WINWORD', 'Microsoft Word', 'Word'],
+
+        'excel': ['EXCEL', 'Microsoft Excel', 'Excel'],
+        'Excel': ['EXCEL', 'Microsoft Excel', 'Excel'],
+        '表格处理': ['EXCEL', 'Microsoft Excel', 'Excel'],
+
+        'powerpoint': ['POWERPNT', 'Microsoft PowerPoint', 'PowerPoint'],
+        'PowerPoint': ['POWERPNT', 'Microsoft PowerPoint', 'PowerPoint'],
+        '演示文稿': ['POWERPNT', 'Microsoft PowerPoint', 'PowerPoint'],
+
+        # 开发工具类
+        'vscode': ['Code', 'Visual Studio Code', 'code'],
+        'vs code': ['Code', 'Visual Studio Code', 'code'],
+        'visual studio code': ['Code', 'Visual Studio Code', 'code'],
+
+        'pycharm': ['PyCharm', 'pycharm64', 'jetbrains-pycharm'],
+        'PyCharm': ['PyCharm', 'pycharm64', 'jetbrains-pycharm'],
+
+        'git bash': ['sh', 'Git Bash', 'bash'],
+        'cmd': ['cmd', 'Command Prompt', '命令提示符'],
+        '命令提示符': ['cmd', 'Command Prompt', '命令提示符'],
+
+        # 视频播放类
+        'vlc': ['vlc', 'VLC media player', 'VLC'],
+        'VLC': ['vlc', 'VLC media player', 'VLC'],
+
+        '爱奇艺': ['iQIYI', 'iqiyi', '爱奇艺'],
+        'iqiyi': ['iQIYI', 'iqiyi', '爱奇艺'],
+
+        '腾讯视频': ['QQLive', 'qqlivehd', '腾讯视频'],
+        'qqlive': ['QQLive', 'qqlivehd', '腾讯视频'],
+
+        # 图像处理类
+        'photoshop': ['Photoshop', 'photoshop', 'Adobe Photoshop'],
+        'ps': ['Photoshop', 'photoshop', 'Adobe Photoshop'],
+
+        '画图': ['mspaint', 'Paint', '画图'],
+        'paint': ['mspaint', 'Paint', '画图'],
+
+        # 系统工具类
+        '任务管理器': ['taskmgr', 'Task Manager', '任务管理器'],
+        'taskmgr': ['taskmgr', 'Task Manager', '任务管理器'],
+
+        '控制面板': ['control', 'Control Panel', '控制面板'],
+        'control': ['control', 'Control Panel', '控制面板'],
+
+        '文件资源管理器': ['explorer', 'File Explorer', '资源管理器'],
+        '资源管理器': ['explorer', 'File Explorer', '资源管理器'],
+        'explorer': ['explorer', 'File Explorer', '资源管理器'],
+
+        # 下载工具类
+        '迅雷': ['Thunder', 'thunder', '迅雷'],
+        'thunder': ['Thunder', 'thunder', '迅雷'],
+
+        # 游戏平台类
+        'steam': ['Steam', 'steam'],
+        'Steam': ['Steam', 'steam'],
+
+        '腾讯游戏': ['WeGame', 'wegame', '腾讯游戏'],
+        'wegame': ['WeGame', 'wegame', '腾讯游戏'],
+    }
+
+    possible_names = [app_name.lower()]
+    for key, names in APP_NAME_MAPPING.items():
+        if key in app_name.lower() or app_name.lower() in key:
+            possible_names.extend([name.lower() for name in names])
+
+    possible_names = list(dict.fromkeys(possible_names))
+    print(f"[INFO] 尝试聚焦应用: {app_name}, 可能的名称: {possible_names}")
 
     if os_name == "windows":
         try:
@@ -109,16 +382,22 @@ def focus_app(app_name):
             def enum_handler(hwnd, match_hwnds):
                 if win32gui.IsWindowVisible(hwnd):
                     title = win32gui.GetWindowText(hwnd)
-                    if app_name.lower() in title.lower():
-                        match_hwnds.append(hwnd)
+                    # 检查标题是否包含任何可能的应用名称
+                    for name in possible_names:
+                        if name.lower() in title.lower():
+                            match_hwnds.append((hwnd, title))
+                            break
 
             match_hwnds = []
             win32gui.EnumWindows(lambda hwnd, _: enum_handler(hwnd, match_hwnds), None)
 
-            for hwnd in match_hwnds:
+            print(f"[INFO] 找到匹配的窗口: {[(title) for _, title in match_hwnds]}")
+
+            for hwnd, title in match_hwnds:
                 try:
                     # Check if already in foreground
                     if hwnd == win32gui.GetForegroundWindow():
+                        print(f"[INFO] 窗口已经在前台: {title}")
                         return True  # Already focused, don't touch
 
                     # Only restore if minimized
@@ -134,36 +413,49 @@ def focus_app(app_name):
                     time.sleep(0.1)
 
                     if hwnd == win32gui.GetForegroundWindow():
+                        print(f"[✅] 成功聚焦窗口: {title}")
                         return True
                 except Exception as e:
-                    print(f"[❌] Failed to focus window: {e}")
-            print(f"[⚠️] No visible window matched: {app_name}")
+                    print(f"[❌] 聚焦窗口失败: {title}, 错误: {e}")
+
+            print(f"[⚠️] 没有找到匹配的可见窗口: {possible_names}")
         except ImportError:
             print("[❌] pywin32 is not installed. Install it via `pip install pywin32`.")
 
     elif os_name == "darwin":
-        try:
-            subprocess.run(["osascript", "-e", f'tell application "{app_name}" to activate'], check=True)
-            return True
-        except subprocess.CalledProcessError:
-            print(f"[❌] Could not focus macOS app: {app_name}")
+        for name in possible_names:
+            try:
+                subprocess.run(["osascript", "-e", f'tell application "{name}" to activate'], check=True)
+                print(f"[✅] macOS聚焦成功: {name}")
+                return True
+            except subprocess.CalledProcessError:
+                continue
 
     elif os_name == "linux":
-        try:
-            # Try wmctrl first
-            result = subprocess.run(["wmctrl", "-a", app_name], check=True)
-            return result.returncode == 0
-        except FileNotFoundError:
-            print("❌ wmctrl is not installed. Try `sudo apt install wmctrl`.")
-        except subprocess.CalledProcessError:
-            print(f"[⚠️] wmctrl failed, trying xdotool for app: {app_name}")
+        for name in possible_names:
             try:
-                subprocess.run(["xdotool", "search", "--name", app_name, "windowactivate"], check=True)
+                # Try wmctrl first
+                result = subprocess.run(["wmctrl", "-a", name], check=True)
+                if result.returncode == 0:
+                    print(f"[✅] Linux聚焦成功: {name}")
+                    return True
+            except FileNotFoundError:
+                print("❌ wmctrl is not installed. Try `sudo apt install wmctrl`.")
+                break
+            except subprocess.CalledProcessError:
+                continue
+
+        # Try xdotool as fallback
+        for name in possible_names:
+            try:
+                subprocess.run(["xdotool", "search", "--name", name, "windowactivate"], check=True)
+                print(f"[✅] Linux xdotool聚焦成功: {name}")
                 return True
-            except Exception:
-                print(f"[❌] Could not focus Linux app: {app_name}")
+            except:
+                continue
 
     return False
+
 
 def take_screenshot_b64():
     with mss.mss() as sct:
@@ -175,8 +467,10 @@ def take_screenshot_b64():
         img.save(buffer, format="PNG")
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
+
 def safe_coords(x, y, screen_width, screen_height):
     return max(1, min(screen_width - 1, x)), max(1, min(screen_height - 1, y))
+
 
 def perform_action(response):
     global screenshot_requested
@@ -331,6 +625,7 @@ def get_next_step():
 
     return None
 
+
 def get_current_subtask():
     url = os.getenv('NEURALAGENT_API_URL') + '/aiagent/' + os.getenv('NEURALAGENT_THREAD_ID') + '/current_subtask'
     headers = {
@@ -349,6 +644,7 @@ def get_current_subtask():
     except:
         pass
     return None
+
 
 async def main_loop():
     while True:
@@ -369,6 +665,7 @@ async def main_loop():
             break
 
         perform_action(action_response)
+
 
 if __name__ == "__main__":
     asyncio.run(main_loop())

@@ -95,6 +95,15 @@ cd src/desktop_agent/backend
 # Edit .env file, set DB_PASSWORD to your PostgreSQL password
 # DB_HOST=localhost, DB_PORT=5432, DB_DATABASE=postgres, DB_USERNAME=postgres
 
+#create venv for desktop backend
+python -m venv venv
+# Activate:
+source venv/bin/activate  # macOS/Linux
+venv\Scripts\activate     # Windows
+
+#Dependencies
+pip install -r requirements.txt
+
 # Initialize database
 python init_db.py
 

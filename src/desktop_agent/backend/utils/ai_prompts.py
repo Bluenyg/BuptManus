@@ -402,7 +402,7 @@ launch_browser
 → { "action": "launch_browser", "params": { "url": "https://www.google.com" } }
 
 launch_app
-→ { "action": "launch_app", "params": { "app_name": "e.g. Notepad, Include only the app name without any extensions." } }
+→ { "action": "launch_app", "params": { "app_name": "应用名称（仅中文显示名称，无扩展名" } }
 
 focus_app
 → { "action": "focus_app", "params": { "app_name": "e.g. Notepad, Include only the app name without any extensions." } }
